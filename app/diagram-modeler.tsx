@@ -95,18 +95,18 @@ type DragState = {
 
 type NodeProfile = {
   kind:
-    | "client"
-    | "edge"
-    | "service"
-    | "compute"
-    | "data"
-    | "cache"
-    | "queue"
-    | "storage"
-    | "security"
-    | "observability"
-    | "region"
-    | "ai";
+  | "client"
+  | "edge"
+  | "service"
+  | "compute"
+  | "data"
+  | "cache"
+  | "queue"
+  | "storage"
+  | "security"
+  | "observability"
+  | "region"
+  | "ai";
   capacity: number;
   baseLatency: number;
   passThrough: number;
@@ -1060,8 +1060,8 @@ function simulateTopology(
         : Math.max(0, Math.round((incomingLoad - profile.capacity) / 30));
     const latency = round(
       profile.baseLatency +
-        utilization * profile.baseLatency * 1.8 +
-        queueDepth / (profile.kind === "queue" ? 65 : 190),
+      utilization * profile.baseLatency * 1.8 +
+      queueDepth / (profile.kind === "queue" ? 65 : 190),
       1,
     );
     const cpu = round(clamp(utilization * 72 + saturationPenalty + outEdges.length * 4 + 6, 0, 99), 1);
@@ -1125,12 +1125,12 @@ function simulateTopology(
   const multiRegion = nodes.filter((node) => /region|zone/i.test(`${node.type} ${node.label}`)).length;
   const resilience = clamp(
     42 +
-      loadBalancers * 8 +
-      queues * 7 +
-      multiRegion * 9 +
-      observability * 4 -
-      critical.length * 8 -
-      validationMessages.filter((message) => message.level !== "note").length * 5,
+    loadBalancers * 8 +
+    queues * 7 +
+    multiRegion * 9 +
+    observability * 4 -
+    critical.length * 8 -
+    validationMessages.filter((message) => message.level !== "note").length * 5,
     0,
     100,
   );
@@ -1259,7 +1259,8 @@ function metricCard(label: string, value: string, helper: string, tone?: string)
   );
 }
 
-export function DiagramModeler() {
+export function DiagramModeler({ headless = false }: { headless?: boolean }) {
+
   const canvasRef = useRef<HTMLDivElement>(null);
   const generatedIdRef = useRef(0);
   const [selectedScenarioName, setSelectedScenarioName] = useState(
@@ -1442,6 +1443,43 @@ export function DiagramModeler() {
     };
   }, [dragState]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selection?.kind === "node") {
+          setNodes((current) => current.filter((node) => node.id !== selection.id));
+          setEdges((current) => current.filter((edge) => edge.sourceId !== selection.id && edge.targetId !== selection.id));
+          setSelection(null);
+        } else if (selection?.kind === "edge") {
+          setEdges((current) => current.filter((edge) => edge.id !== selection.id));
+          setSelection(null);
+        }
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === "z") {
+        // Simple undo implementation would go here (optional for now but good to have)
+        console.log("Undo shortcut triggered");
+      }
+
+      if (event.key === "Escape") {
+        setSelection(null);
+        setPendingConnectionSourceId(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selection]);
+
+
   const handleNodePointerDown = (
     event: ReactPointerEvent<HTMLButtonElement>,
     nodeId: string,
@@ -1534,212 +1572,216 @@ export function DiagramModeler() {
   const inspectorNodeState = selectedNode ? simulation.nodeState[selectedNode.id] : undefined;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-      <aside className="space-y-5">
-        <section className="rounded-[1.8rem] border border-white/70 bg-white/78 p-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
-                Guided Scenario
-              </p>
-              <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                Spec-backed lab bootstrap
-              </h3>
-            </div>
-            <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-800">
-              {selectedScenario?.difficulty}
-            </span>
-          </div>
+    <div className={`${headless ? "flex flex-col h-full w-full" : "grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]"}`}>
+      {!headless && (
+        <aside className="space-y-5">
 
-          <label className="mt-5 block text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-            Scenario
-          </label>
-          <select
-            value={selectedScenarioName}
-            onChange={(event) => applyScenarioSelection(event.target.value)}
-            className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
-          >
-            {systemExamples.map((scenario) => (
-              <option key={scenario.system_name} value={scenario.system_name}>
-                {scenario.system_name}
-              </option>
-            ))}
-          </select>
-
-          {selectedScenario ? (
-            <div className="mt-4 space-y-4">
-              <p className="text-sm leading-6 text-slate-700">{selectedScenario.description}</p>
-              <div className="flex flex-wrap gap-2">
-                {selectedScenario.design_patterns.map((pattern) => (
-                  <span
-                    key={pattern}
-                    className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
-                  >
-                    {pattern}
-                  </span>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Peak RPS
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-slate-950">
-                    {selectedScenario.scale.peak_requests_per_second}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Regions
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-slate-950">
-                    {selectedScenario.scale.regions}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-5 rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
-            <div className="flex items-center justify-between gap-3">
+          <section className="rounded-[1.8rem] border border-white/70 bg-panel/80 border-line shadow-xl">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Step Playback
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
+                  Guided Scenario
                 </p>
-                <p className="mt-1 text-sm text-slate-700">
-                  {guidedStepCount} / {selectedScenario?.architecture_steps.length ?? 0} spec
-                  steps applied
-                </p>
+                <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Spec-backed lab bootstrap
+                </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => loadScenarioSteps(0)}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
-              >
-                Blank canvas
-              </button>
+              <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-800">
+                {selectedScenario?.difficulty}
+              </span>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => loadScenarioSteps(guidedStepCount - 1)}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-cyan-400 hover:text-slate-950"
-              >
-                Roll back step
-              </button>
-              <button
-                type="button"
-                onClick={() => loadScenarioSteps(guidedStepCount + 1)}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-cyan-400 hover:text-slate-950"
-              >
-                Apply next step
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  loadScenarioSteps(selectedScenario?.architecture_steps.length ?? guidedStepCount)
-                }
-                className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-              >
-                Load full lab
-              </button>
-            </div>
-            {activeStep ? (
-              <div className="mt-4 rounded-2xl bg-white px-4 py-4">
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-cyan-700">
-                  Current Step
-                </p>
-                <h4 className="mt-2 text-base font-semibold text-slate-950">{activeStep.title}</h4>
-                <p className="mt-2 text-sm leading-6 text-slate-700">
-                  {activeStep.tooltip.what_happens}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {activeStep.operations.slice(0, 4).map((operation) => (
+
+            <label className="mt-5 block text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+              Scenario
+            </label>
+            <select
+              value={selectedScenarioName}
+              onChange={(event) => applyScenarioSelection(event.target.value)}
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+            >
+              {systemExamples.map((scenario) => (
+                <option key={scenario.system_name} value={scenario.system_name}>
+                  {scenario.system_name}
+                </option>
+              ))}
+            </select>
+
+            {selectedScenario ? (
+              <div className="mt-4 space-y-4">
+                <p className="text-sm leading-6 text-slate-700">{selectedScenario.description}</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedScenario.design_patterns.map((pattern) => (
                     <span
-                      key={operation}
-                      className="rounded-full bg-cyan-50 px-3 py-1 text-xs text-cyan-900"
+                      key={pattern}
+                      className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
                     >
-                      {operation}
+                      {pattern}
                     </span>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <p className="mt-4 text-sm leading-6 text-slate-600">
-                The workspace is blank. Drag components from the palette to build your own network
-                model.
-              </p>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-[1.8rem] border border-white/70 bg-white/78 p-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
-                Component Palette
-              </p>
-              <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                Drag spec components
-              </h3>
-            </div>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
-              {filteredPalette.length} items
-            </span>
-          </div>
-
-          <input
-            value={paletteQuery}
-            onChange={(event) => setPaletteQuery(event.target.value)}
-            placeholder="Search load balancer, queue, cache..."
-            className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
-          />
-
-          <div className="mt-4 max-h-[640px] space-y-3 overflow-y-auto pr-1">
-            {filteredPalette.map((item) => {
-              const theme = getCategoryTheme(item.category);
-              return (
-                <button
-                  key={`${item.category}-${item.name}`}
-                  type="button"
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData(
-                      "application/x-network-node",
-                      JSON.stringify(item),
-                    );
-                    event.dataTransfer.effectAllowed = "copy";
-                  }}
-                  className="w-full rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_40px_rgba(15,23,42,0.10)]"
-                  style={{
-                    background: `linear-gradient(140deg, ${theme.surface}, rgba(255,255,255,0.95))`,
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-950">{item.name}</p>
-                      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        {item.category}
-                      </p>
-                    </div>
-                    <span
-                      className="rounded-full px-2.5 py-1 text-[0.68rem] font-medium"
-                      style={{
-                        color: theme.accent,
-                        background: "rgba(255,255,255,0.74)",
-                      }}
-                    >
-                      Drag
-                    </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Peak RPS
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {selectedScenario.scale.peak_requests_per_second}
+                    </p>
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">{item.focus}</p>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Regions
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {selectedScenario.scale.regions}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-5 rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                    Step Playback
+                  </p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    {guidedStepCount} / {selectedScenario?.architecture_steps.length ?? 0} spec
+                    steps applied
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => loadScenarioSteps(0)}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
+                >
+                  Blank canvas
                 </button>
-              );
-            })}
-          </div>
-        </section>
-      </aside>
-      <section className="space-y-5">
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => loadScenarioSteps(guidedStepCount - 1)}
+                  className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
+                >
+                  Roll back step
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadScenarioSteps(guidedStepCount + 1)}
+                  className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
+                >
+                  Apply next step
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    loadScenarioSteps(selectedScenario?.architecture_steps.length ?? guidedStepCount)
+                  }
+                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                >
+                  Load full lab
+                </button>
+              </div>
+              {activeStep ? (
+                <div className="mt-4 rounded-2xl bg-white px-4 py-4">
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-cyan-700">
+                    Current Step
+                  </p>
+                  <h4 className="mt-2 text-base font-semibold text-slate-950">{activeStep.title}</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    {activeStep.tooltip.what_happens}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {activeStep.operations.slice(0, 4).map((operation) => (
+                      <span
+                        key={operation}
+                        className="rounded-full bg-cyan-50 px-3 py-1 text-xs text-cyan-900"
+                      >
+                        {operation}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm leading-6 text-slate-600">
+                  The workspace is blank. Drag components from the palette to build your own network
+                  model.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-[1.8rem] border border-white/70 bg-panel/80 border-line shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
+                  Component Palette
+                </p>
+                <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Drag spec components
+                </h3>
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+                {filteredPalette.length} items
+              </span>
+            </div>
+
+            <input
+              value={paletteQuery}
+              onChange={(event) => setPaletteQuery(event.target.value)}
+              placeholder="Search load balancer, queue, cache..."
+              className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+            />
+
+            <div className="mt-4 max-h-[640px] space-y-3 overflow-y-auto pr-1">
+              {filteredPalette.map((item) => {
+                const theme = getCategoryTheme(item.category);
+                return (
+                  <button
+                    key={`${item.category}-${item.name}`}
+                    type="button"
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData(
+                        "application/x-network-node",
+                        JSON.stringify(item),
+                      );
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                    className="w-full rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_40px_rgba(15,23,42,0.10)]"
+                    style={{
+                      background: `linear-gradient(140deg, ${theme.surface}, rgba(255,255,255,0.95))`,
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-950">{item.name}</p>
+                        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                          {item.category}
+                        </p>
+                      </div>
+                      <span
+                        className="rounded-full px-2.5 py-1 text-[0.68rem] font-medium"
+                        style={{
+                          color: theme.accent,
+                          background: "rgba(255,255,255,0.74)",
+                        }}
+                      >
+                        Drag
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-700">{item.focus}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </aside>
+      )}
+      <section className={`${headless ? "h-full w-full" : ""} space-y-5`}>
+
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.8rem] border border-white/70 bg-white/78 px-5 py-4 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
           <div>
             <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
@@ -1753,7 +1795,7 @@ export function DiagramModeler() {
             <button
               type="button"
               onClick={() => setTick((current) => current + 1)}
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-cyan-400 hover:text-slate-950"
+              className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
             >
               Step tick
             </button>
@@ -1770,7 +1812,7 @@ export function DiagramModeler() {
                 setNodes((current) => autoLayout(current));
                 setTick((current) => current + 1);
               }}
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-cyan-400 hover:text-slate-950"
+              className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
             >
               Auto-layout
             </button>
@@ -1790,7 +1832,7 @@ export function DiagramModeler() {
           </div>
         </div>
 
-        <div className="rounded-[1.8rem] border border-white/70 bg-white/82 p-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
+        <div className="rounded-[1.8rem] border border-white/70 bg-panel border-line shadow-md">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex-1">
               <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
@@ -2056,442 +2098,446 @@ export function DiagramModeler() {
           </div>
         </div>
       </section>
-      <aside className="space-y-5">
-        <section className="rounded-[1.8rem] border border-white/70 bg-white/78 p-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
-                Simulation HUD
-              </p>
-              <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                Server-level telemetry
-              </h3>
-            </div>
-            <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-medium text-white">
-              Tick {simulation.tick}
-            </span>
-          </div>
+      {!headless && (
+        <aside className="space-y-5">
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {metricCard(
-              "Demand",
-              formatNumber(simulation.demand),
-              "Input traffic applied to entry nodes this tick.",
-            )}
-            {metricCard(
-              "Latency",
-              `${simulation.avgLatency} ms`,
-              "Average end-to-end service latency across active paths.",
-              scoreTone(simulation.performance),
-            )}
-            {metricCard(
-              "Throughput",
-              `${formatNumber(simulation.throughput)} req/s`,
-              "Effective volume after contention and critical failures.",
-            )}
-            {metricCard(
-              "Overall Score",
-              `${simulation.overallScore}/100`,
-              "Balanced view across resilience, security, performance, cost, and clarity.",
-              scoreTone(simulation.overallScore),
-            )}
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Resilience
-              </p>
-              <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.resilience)}`}>
-                {simulation.resilience}
-              </p>
-            </div>
-            <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Security
-              </p>
-              <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.security)}`}>
-                {simulation.security}
-              </p>
-            </div>
-            <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Performance
-              </p>
-              <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.performance)}`}>
-                {simulation.performance}
-              </p>
-            </div>
-            <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Cost Efficiency
-              </p>
-              <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.costEfficiency)}`}>
-                {simulation.costEfficiency}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-[1.45rem] border border-slate-200 bg-slate-50/90 p-4">
+          <section className="rounded-[1.8rem] border border-white/70 bg-panel/80 border-line shadow-xl">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                Hottest Nodes
-              </p>
-              <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">
-                est. cost {simulation.estimatedCost}
+              <div>
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
+                  Simulation HUD
+                </p>
+                <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Server-level telemetry
+                </h3>
+              </div>
+              <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-medium text-white">
+                Tick {simulation.tick}
               </span>
             </div>
-            <div className="mt-4 space-y-3">
-              {topNodes.map((node) => {
-                const state = simulation.nodeState[node.id];
-                const tone = healthTone(state);
-                return (
-                  <div
-                    key={node.id}
-                    className="rounded-2xl border bg-white px-4 py-3"
-                    style={{ borderColor: tone.border }}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-slate-950">{node.label}</p>
-                        <p className="mt-1 text-xs text-slate-500">{titleFromType(node.type)}</p>
-                      </div>
-                      <span className={`rounded-full px-2.5 py-1 text-[0.64rem] font-medium ${tone.badge}`}>
-                        {state.health}
-                      </span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-4 gap-2 text-xs text-slate-600">
-                      <div>
-                        <p className="font-semibold text-slate-900">{state.cpu}%</p>
-                        <p>CPU</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-slate-900">{state.latency} ms</p>
-                        <p>Latency</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-slate-900">{state.errorRate}%</p>
-                        <p>Error</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-slate-900">{state.queueDepth}</p>
-                        <p>Queue</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {metricCard(
+                "Demand",
+                formatNumber(simulation.demand),
+                "Input traffic applied to entry nodes this tick.",
+              )}
+              {metricCard(
+                "Latency",
+                `${simulation.avgLatency} ms`,
+                "Average end-to-end service latency across active paths.",
+                scoreTone(simulation.performance),
+              )}
+              {metricCard(
+                "Throughput",
+                `${formatNumber(simulation.throughput)} req/s`,
+                "Effective volume after contention and critical failures.",
+              )}
+              {metricCard(
+                "Overall Score",
+                `${simulation.overallScore}/100`,
+                "Balanced view across resilience, security, performance, cost, and clarity.",
+                scoreTone(simulation.overallScore),
+              )}
             </div>
-          </div>
-        </section>
 
-        <section className="rounded-[1.8rem] border border-white/70 bg-white/78 p-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
-          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
-            Validation
-          </p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-            Rules and incident feed
-          </h3>
-
-          <div className="mt-4 space-y-3">
-            {validationMessages.map((message) => (
-              <div
-                key={`${message.rule}-${message.detail}`}
-                className="rounded-[1.35rem] border px-4 py-4"
-                style={{
-                  borderColor:
-                    message.level === "reject"
-                      ? "rgba(239,68,68,0.32)"
-                      : "rgba(245,158,11,0.30)",
-                  background:
-                    message.level === "reject"
-                      ? "rgba(254, 242, 242, 0.86)"
-                      : "rgba(255, 251, 235, 0.88)",
-                }}
-              >
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
                 <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  {message.level}
+                  Resilience
                 </p>
-                <p className="mt-2 text-sm font-medium leading-6 text-slate-900">{message.rule}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-700">{message.detail}</p>
-              </div>
-            ))}
-            {validationMessages.length === 0 ? (
-              <div className="rounded-[1.35rem] border border-emerald-200 bg-emerald-50/90 px-4 py-4">
-                <p className="text-sm font-medium text-emerald-900">
-                  No major validation issues are currently triggered.
+                <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.resilience)}`}>
+                  {simulation.resilience}
                 </p>
               </div>
-            ) : null}
-          </div>
+              <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Security
+                </p>
+                <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.security)}`}>
+                  {simulation.security}
+                </p>
+              </div>
+              <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Performance
+                </p>
+                <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.performance)}`}>
+                  {simulation.performance}
+                </p>
+              </div>
+              <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Cost Efficiency
+                </p>
+                <p className={`mt-2 text-xl font-semibold ${scoreTone(simulation.costEfficiency)}`}>
+                  {simulation.costEfficiency}
+                </p>
+              </div>
+            </div>
 
-          <div className="mt-5 rounded-[1.45rem] border border-slate-200 bg-slate-50/90 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Simulation Events
+            <div className="mt-5 rounded-[1.45rem] border border-slate-200 bg-slate-50/90 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                  Hottest Nodes
+                </p>
+                <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">
+                  est. cost {simulation.estimatedCost}
+                </span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {topNodes.map((node) => {
+                  const state = simulation.nodeState[node.id];
+                  const tone = healthTone(state);
+                  return (
+                    <div
+                      key={node.id}
+                      className="rounded-2xl border bg-white px-4 py-3"
+                      style={{ borderColor: tone.border }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-slate-950">{node.label}</p>
+                          <p className="mt-1 text-xs text-slate-500">{titleFromType(node.type)}</p>
+                        </div>
+                        <span className={`rounded-full px-2.5 py-1 text-[0.64rem] font-medium ${tone.badge}`}>
+                          {state.health}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-4 gap-2 text-xs text-slate-600">
+                        <div>
+                          <p className="font-semibold text-slate-900">{state.cpu}%</p>
+                          <p>CPU</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{state.latency} ms</p>
+                          <p>Latency</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{state.errorRate}%</p>
+                          <p>Error</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{state.queueDepth}</p>
+                          <p>Queue</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[1.8rem] border border-white/70 bg-panel/80 border-line shadow-xl">
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
+              Validation
             </p>
-            <ul className="mt-3 space-y-3">
-              {simulation.events.map((eventText) => (
-                <li
-                  key={eventText}
-                  className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-slate-700"
+            <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Rules and incident feed
+            </h3>
+
+            <div className="mt-4 space-y-3">
+              {validationMessages.map((message) => (
+                <div
+                  key={`${message.rule}-${message.detail}`}
+                  className="rounded-[1.35rem] border px-4 py-4"
+                  style={{
+                    borderColor:
+                      message.level === "reject"
+                        ? "rgba(239,68,68,0.32)"
+                        : "rgba(245,158,11,0.30)",
+                    background:
+                      message.level === "reject"
+                        ? "rgba(254, 242, 242, 0.86)"
+                        : "rgba(255, 251, 235, 0.88)",
+                  }}
                 >
-                  {eventText}
-                </li>
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    {message.level}
+                  </p>
+                  <p className="mt-2 text-sm font-medium leading-6 text-slate-900">{message.rule}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">{message.detail}</p>
+                </div>
               ))}
-            </ul>
-          </div>
-        </section>
+              {validationMessages.length === 0 ? (
+                <div className="rounded-[1.35rem] border border-emerald-200 bg-emerald-50/90 px-4 py-4">
+                  <p className="text-sm font-medium text-emerald-900">
+                    No major validation issues are currently triggered.
+                  </p>
+                </div>
+              ) : null}
+            </div>
 
-        <section className="rounded-[1.8rem] border border-white/70 bg-white/78 p-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
-          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
-            Inspector
-          </p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-            Configure the selected element
-          </h3>
+            <div className="mt-5 rounded-[1.45rem] border border-slate-200 bg-slate-50/90 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                Simulation Events
+              </p>
+              <ul className="mt-3 space-y-3">
+                {simulation.events.map((eventText) => (
+                  <li
+                    key={eventText}
+                    className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-slate-700"
+                  >
+                    {eventText}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
 
-          {selectedNode ? (
-            <div className="mt-4 space-y-4">
-              <div className="grid gap-3">
-                <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Node label
-                </label>
-                <input
-                  value={selectedNode.label}
-                  onChange={(event) =>
-                    updateNode(selectedNode.id, (node) => ({
-                      ...node,
-                      label: event.target.value,
-                    }))
-                  }
-                  className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
-                />
-              </div>
+          <section className="rounded-[1.8rem] border border-white/70 bg-panel/80 border-line shadow-xl">
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
+              Inspector
+            </p>
+            <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Configure the selected element
+            </h3>
 
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
+            {selectedNode ? (
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-3">
                   <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Provider
+                    Node label
                   </label>
-                  <select
-                    value={selectedNode.provider ?? ""}
+                  <input
+                    value={selectedNode.label}
                     onChange={(event) =>
                       updateNode(selectedNode.id, (node) => ({
                         ...node,
-                        provider: event.target.value || undefined,
+                        label: event.target.value,
                       }))
+                    }
+                    className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                  />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Provider
+                    </label>
+                    <select
+                      value={selectedNode.provider ?? ""}
+                      onChange={(event) =>
+                        updateNode(selectedNode.id, (node) => ({
+                          ...node,
+                          provider: event.target.value || undefined,
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                    >
+                      <option value="">None</option>
+                      {cloudProviders.map((provider) => (
+                        <option key={provider.name} value={provider.name}>
+                          {provider.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Region
+                    </label>
+                    <input
+                      value={selectedNode.region ?? ""}
+                      onChange={(event) =>
+                        updateNode(selectedNode.id, (node) => ({
+                          ...node,
+                          region: event.target.value || undefined,
+                        }))
+                      }
+                      placeholder="eu-west-1"
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Capacity factor
+                    </label>
+                    <input
+                      type="number"
+                      min={0.5}
+                      max={6}
+                      step={0.1}
+                      value={getSettingNumber(selectedNode.settings, "capacity_factor", 1)}
+                      onChange={(event) =>
+                        updateNode(selectedNode.id, (node) => ({
+                          ...node,
+                          settings: {
+                            ...node.settings,
+                            capacity_factor: Number(event.target.value),
+                          },
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Redundancy
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={6}
+                      step={1}
+                      value={getSettingNumber(selectedNode.settings, "redundancy", 1)}
+                      onChange={(event) =>
+                        updateNode(selectedNode.id, (node) => ({
+                          ...node,
+                          settings: {
+                            ...node.settings,
+                            redundancy: Number(event.target.value),
+                          },
+                        }))
+                      }
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                    />
+                  </div>
+                </div>
+
+                {inspectorNodeState ? (
+                  <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Runtime
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-700">
+                      <div className="rounded-2xl bg-white px-4 py-3">
+                        <p className="font-semibold text-slate-950">
+                          {formatNumber(inspectorNodeState.requests)} req/s
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">Traffic</p>
+                      </div>
+                      <div className="rounded-2xl bg-white px-4 py-3">
+                        <p className="font-semibold text-slate-950">
+                          {inspectorNodeState.latency} ms
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">Latency</p>
+                      </div>
+                      <div className="rounded-2xl bg-white px-4 py-3">
+                        <p className="font-semibold text-slate-950">{inspectorNodeState.cpu}%</p>
+                        <p className="mt-1 text-xs text-slate-500">CPU</p>
+                      </div>
+                      <div className="rounded-2xl bg-white px-4 py-3">
+                        <p className="font-semibold text-slate-950">
+                          {inspectorNodeState.errorRate}%
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">Error rate</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Simulation focus
+                  </p>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">{selectedNode.focus}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraftProtocol(defaultProtocol(selectedNode, selectedNode));
+                        setDraftPurpose("Primary request flow");
+                        setPendingConnectionSourceId(selectedNode.id);
+                      }}
+                      className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                    >
+                      Start connection
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNodes((current) =>
+                          current.filter((node) => node.id !== selectedNode.id),
+                        );
+                        setEdges((current) =>
+                          current.filter(
+                            (edge) =>
+                              edge.sourceId !== selectedNode.id &&
+                              edge.targetId !== selectedNode.id,
+                          ),
+                        );
+                        setSelection(null);
+                      }}
+                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
+                    >
+                      Remove node
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : selectedEdge ? (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Protocol
+                  </label>
+                  <select
+                    value={selectedEdge.protocol}
+                    onChange={(event) =>
+                      setEdges((current) =>
+                        current.map((edge) =>
+                          edge.id === selectedEdge.id
+                            ? { ...edge, protocol: event.target.value }
+                            : edge,
+                        ),
+                      )
                     }
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
                   >
-                    <option value="">None</option>
-                    {cloudProviders.map((provider) => (
-                      <option key={provider.name} value={provider.name}>
-                        {provider.name}
+                    {PROTOCOL_OPTIONS.map((protocol) => (
+                      <option key={protocol} value={protocol}>
+                        {protocol}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Region
+                    Purpose
                   </label>
                   <input
-                    value={selectedNode.region ?? ""}
+                    value={selectedEdge.purpose}
                     onChange={(event) =>
-                      updateNode(selectedNode.id, (node) => ({
-                        ...node,
-                        region: event.target.value || undefined,
-                      }))
-                    }
-                    placeholder="eu-west-1"
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Capacity factor
-                  </label>
-                  <input
-                    type="number"
-                    min={0.5}
-                    max={6}
-                    step={0.1}
-                    value={getSettingNumber(selectedNode.settings, "capacity_factor", 1)}
-                    onChange={(event) =>
-                      updateNode(selectedNode.id, (node) => ({
-                        ...node,
-                        settings: {
-                          ...node.settings,
-                          capacity_factor: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Redundancy
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={6}
-                    step={1}
-                    value={getSettingNumber(selectedNode.settings, "redundancy", 1)}
-                    onChange={(event) =>
-                      updateNode(selectedNode.id, (node) => ({
-                        ...node,
-                        settings: {
-                          ...node.settings,
-                          redundancy: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
-                  />
-                </div>
-              </div>
-
-              {inspectorNodeState ? (
-                <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Runtime
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-700">
-                    <div className="rounded-2xl bg-white px-4 py-3">
-                      <p className="font-semibold text-slate-950">
-                        {formatNumber(inspectorNodeState.requests)} req/s
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">Traffic</p>
-                    </div>
-                    <div className="rounded-2xl bg-white px-4 py-3">
-                      <p className="font-semibold text-slate-950">
-                        {inspectorNodeState.latency} ms
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">Latency</p>
-                    </div>
-                    <div className="rounded-2xl bg-white px-4 py-3">
-                      <p className="font-semibold text-slate-950">{inspectorNodeState.cpu}%</p>
-                      <p className="mt-1 text-xs text-slate-500">CPU</p>
-                    </div>
-                    <div className="rounded-2xl bg-white px-4 py-3">
-                      <p className="font-semibold text-slate-950">
-                        {inspectorNodeState.errorRate}%
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">Error rate</p>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="rounded-[1.35rem] border border-slate-200 bg-slate-50/90 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Simulation focus
-                </p>
-                <p className="mt-3 text-sm leading-6 text-slate-700">{selectedNode.focus}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDraftProtocol(defaultProtocol(selectedNode, selectedNode));
-                      setDraftPurpose("Primary request flow");
-                      setPendingConnectionSourceId(selectedNode.id);
-                    }}
-                    className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-                  >
-                    Start connection
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNodes((current) =>
-                        current.filter((node) => node.id !== selectedNode.id),
-                      );
                       setEdges((current) =>
-                        current.filter(
-                          (edge) =>
-                            edge.sourceId !== selectedNode.id &&
-                            edge.targetId !== selectedNode.id,
+                        current.map((edge) =>
+                          edge.id === selectedEdge.id
+                            ? { ...edge, purpose: event.target.value }
+                            : edge,
                         ),
-                      );
-                      setSelection(null);
-                    }}
-                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
-                  >
-                    Remove node
-                  </button>
+                      )
+                    }
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                  />
                 </div>
-              </div>
-            </div>
-          ) : selectedEdge ? (
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Protocol
-                </label>
-                <select
-                  value={selectedEdge.protocol}
-                  onChange={(event) =>
-                    setEdges((current) =>
-                      current.map((edge) =>
-                        edge.id === selectedEdge.id
-                          ? { ...edge, protocol: event.target.value }
-                          : edge,
-                      ),
-                    )
-                  }
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id));
+                    setSelection(null);
+                  }}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
                 >
-                  {PROTOCOL_OPTIONS.map((protocol) => (
-                    <option key={protocol} value={protocol}>
-                      {protocol}
-                    </option>
-                  ))}
-                </select>
+                  Remove connection
+                </button>
               </div>
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Purpose
-                </label>
-                <input
-                  value={selectedEdge.purpose}
-                  onChange={(event) =>
-                    setEdges((current) =>
-                      current.map((edge) =>
-                        edge.id === selectedEdge.id
-                          ? { ...edge, purpose: event.target.value }
-                          : edge,
-                      ),
-                    )
-                  }
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
-                />
+            ) : (
+              <div className="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
+                <p className="text-sm leading-6 text-slate-700">
+                  Select a node to edit capacity, redundancy, provider, or region. Select a cable to
+                  change protocol semantics. The simulator updates live as you edit the topology.
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id));
-                  setSelection(null);
-                }}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
-              >
-                Remove connection
-              </button>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
-              <p className="text-sm leading-6 text-slate-700">
-                Select a node to edit capacity, redundancy, provider, or region. Select a cable to
-                change protocol semantics. The simulator updates live as you edit the topology.
-              </p>
-            </div>
-          )}
-        </section>
-      </aside>
+            )}
+          </section>
+        </aside>
+      )}
     </div>
   );
 }
+

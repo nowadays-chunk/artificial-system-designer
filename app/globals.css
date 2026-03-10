@@ -1,17 +1,25 @@
 @import "tailwindcss";
 
 :root {
-  --background: #eef6fb;
+  --background: #f8fdff;
   --foreground: #0f172a;
   --panel: rgba(255, 255, 255, 0.72);
   --line: rgba(15, 23, 42, 0.08);
-  --font-sans:
-    "Aptos", "Segoe UI Variable Display", "Segoe UI", "Trebuchet MS",
-    sans-serif;
-  --font-mono:
-    "Cascadia Code", "JetBrains Mono", "SFMono-Regular", "Consolas",
-    monospace;
+  --font-sans: "Aptos", "Segoe UI Variable Display", "Segoe UI", "Trebuchet MS", sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "SFMono-Regular", "Consolas", monospace;
+  --card-bg: rgba(255, 255, 255, 0.8);
+  --card-border: rgba(15, 23, 42, 0.05);
 }
+
+:root.dark {
+  --background: #020617;
+  --foreground: #f8fafc;
+  --panel: rgba(15, 23, 42, 0.85);
+  --line: rgba(255, 255, 255, 0.08);
+  --card-bg: rgba(15, 23, 42, 0.6);
+  --card-border: rgba(255, 255, 255, 0.1);
+}
+
 
 @theme inline {
   --color-background: var(--background);
@@ -32,10 +40,10 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    linear-gradient(rgba(15, 23, 42, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
-    radial-gradient(circle at top left, rgba(34, 211, 238, 0.18), transparent 34%),
-    linear-gradient(180deg, #f8fdff, #eef6fb 45%, #f7fbff);
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px),
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.1), transparent 40%),
+    var(--background);
   background-size:
     32px 32px,
     32px 32px,
@@ -43,7 +51,9 @@ body {
     auto;
   color: var(--foreground);
   font-family: var(--font-sans);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
+
 
 a {
   color: inherit;
@@ -56,6 +66,11 @@ summary::-webkit-details-marker {
 
 ::selection {
   background: rgba(34, 211, 238, 0.28);
+}
+
+:focus-visible {
+  outline: 2px solid rgba(14, 165, 233, 0.8);
+  outline-offset: 3px;
 }
 
 ::-webkit-scrollbar {
