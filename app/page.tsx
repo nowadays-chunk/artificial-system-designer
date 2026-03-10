@@ -424,7 +424,7 @@ export default function LandingPage() {
             <div className="mt-12 grid gap-6 lg:grid-cols-2">
               {testimonials.map((story) => (
                 <article key={story.name} className="rounded-3xl border border-line bg-panel/80 p-6 shadow-xl">
-                  <p className="text-base leading-relaxed text-slate-700 dark:text-slate-200">“{story.quote}”</p>
+                  <p className="text-base leading-relaxed text-slate-700 dark:text-slate-200">"{story.quote}"</p>
                   <div className="mt-6">
                     <p className="text-sm font-semibold">{story.name}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{story.role}</p>
@@ -482,7 +482,7 @@ export default function LandingPage() {
           </div>
         </div>
         <div className="mx-auto mt-10 flex max-w-7xl flex-col gap-4 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
-          <span>© 2026 Artificial System Designer. All rights reserved.</span>
+          <span>(c) 2026 Artificial System Designer. All rights reserved.</span>
           <div className="flex gap-6">
             <a href="#" className="hover:text-cyan-500">
               Privacy
