@@ -116,6 +116,25 @@ type NodeProfile = {
   securityBonus: number;
 };
 
+export type DiagramSelectionInfo =
+  | {
+    kind: "node";
+    id: string;
+    label: string;
+    type: string;
+    category: string;
+    focus: string;
+    provider?: string;
+    region?: string;
+  }
+  | {
+    kind: "edge";
+    id: string;
+    protocol: string;
+    purpose: string;
+  }
+  | null;
+
 const CANVAS_WIDTH = 1760;
 const CANVAS_HEIGHT = 1080;
 const NODE_WIDTH = 184;
@@ -1259,7 +1278,17 @@ function metricCard(label: string, value: string, helper: string, tone?: string)
   );
 }
 
-export function DiagramModeler({ headless = false }: { headless?: boolean }) {
+export function DiagramModeler({
+  headless = false,
+  canvasOnly = false,
+  scenarioName,
+  onSelectionInfoChange,
+}: {
+  headless?: boolean;
+  canvasOnly?: boolean;
+  scenarioName?: string;
+  onSelectionInfoChange?: (selection: DiagramSelectionInfo) => void;
+}) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const generatedIdRef = useRef(0);
@@ -1502,8 +1531,17 @@ export function DiagramModeler({ headless = false }: { headless?: boolean }) {
     });
   };
 
-  const handleNodeClick = (nodeId: string) => {
+  const handleNodeClick = (nodeId: string, withShiftKey = false) => {
     if (!pendingConnectionSourceId) {
+      if (withShiftKey) {
+        const source = nodes.find((node) => node.id === nodeId);
+        if (!source) {
+          return;
+        }
+        setDraftProtocol(defaultProtocol(source, source));
+        setDraftPurpose("Primary request flow");
+        setPendingConnectionSourceId(nodeId);
+      }
       setSelection({ kind: "node", id: nodeId });
       return;
     }
@@ -1570,6 +1608,46 @@ export function DiagramModeler({ headless = false }: { headless?: boolean }) {
   };
 
   const inspectorNodeState = selectedNode ? simulation.nodeState[selectedNode.id] : undefined;
+  const isCanvasOnly = headless && canvasOnly;
+
+  useEffect(() => {
+    if (!scenarioName || scenarioName === selectedScenarioName) {
+      return;
+    }
+    applyScenarioSelection(scenarioName);
+  }, [scenarioName, selectedScenarioName]);
+
+  useEffect(() => {
+    if (!onSelectionInfoChange) {
+      return;
+    }
+
+    if (selectedNode) {
+      onSelectionInfoChange({
+        kind: "node",
+        id: selectedNode.id,
+        label: selectedNode.label,
+        type: selectedNode.type,
+        category: selectedNode.category,
+        focus: selectedNode.focus,
+        provider: selectedNode.provider,
+        region: selectedNode.region,
+      });
+      return;
+    }
+
+    if (selectedEdge) {
+      onSelectionInfoChange({
+        kind: "edge",
+        id: selectedEdge.id,
+        protocol: selectedEdge.protocol,
+        purpose: selectedEdge.purpose,
+      });
+      return;
+    }
+
+    onSelectionInfoChange(null);
+  }, [selectedNode, selectedEdge, onSelectionInfoChange]);
 
   return (
     <div className={`${headless ? "flex flex-col h-full w-full" : "grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]"}`}>
@@ -1780,92 +1858,95 @@ export function DiagramModeler({ headless = false }: { headless?: boolean }) {
           </section>
         </aside>
       )}
-      <section className={`${headless ? "h-full w-full" : ""} space-y-5`}>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.8rem] border border-white/70 bg-white/78 px-5 py-4 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
-          <div>
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
-              Live Diagram
-            </p>
-            <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-              Connect components and simulate traffic
-            </h3>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setTick((current) => current + 1)}
-              className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
-            >
-              Step tick
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsRunning((current) => !current)}
-              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-            >
-              {isRunning ? "Pause simulation" : "Run simulation"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setNodes((current) => autoLayout(current));
-                setTick((current) => current + 1);
-              }}
-              className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
-            >
-              Auto-layout
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setNodes([]);
-                setEdges([]);
-                setSelection(null);
-                setPendingConnectionSourceId(null);
-                setGuidedStepCount(0);
-              }}
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-[1.8rem] border border-white/70 bg-panel border-line shadow-md">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex-1">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                Traffic Pressure
+      <section className={`${headless ? "h-full w-full" : ""} ${isCanvasOnly ? "h-full" : "space-y-5"}`}>
+        {!isCanvasOnly ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.8rem] border border-white/70 bg-white/78 px-5 py-4 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
+            <div>
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-cyan-700">
+                Live Diagram
               </p>
-              <div className="mt-3 flex items-center gap-4">
-                <input
-                  type="range"
-                  min={400}
-                  max={1_400_000}
-                  step={200}
-                  value={trafficRps}
-                  onChange={(event) => setTrafficRps(Number(event.target.value))}
-                  className="w-full accent-cyan-600"
-                />
-                <div className="min-w-[130px] rounded-2xl bg-slate-950 px-4 py-3 text-right text-sm font-medium text-white">
-                  {formatNumber(trafficRps)} req/s
-                </div>
-              </div>
+              <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Connect components and simulate traffic
+              </h3>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {concepts.map((concept) => (
-                <span
-                  key={concept}
-                  className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-medium text-cyan-900"
-                >
-                  {concept}
-                </span>
-              ))}
+              <button
+                type="button"
+                onClick={() => setTick((current) => current + 1)}
+                className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
+              >
+                Step tick
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsRunning((current) => !current)}
+                className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                {isRunning ? "Pause simulation" : "Run simulation"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNodes((current) => autoLayout(current));
+                  setTick((current) => current + 1);
+                }}
+                className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
+              >
+                Auto-layout
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNodes([]);
+                  setEdges([]);
+                  setSelection(null);
+                  setPendingConnectionSourceId(null);
+                  setGuidedStepCount(0);
+                }}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
+              >
+                Clear
+              </button>
             </div>
           </div>
+        ) : null}
 
-          {pendingConnectionSourceId ? (
+        <div className={isCanvasOnly ? "h-full bg-slate-950 p-4" : "rounded-[1.8rem] border border-white/70 bg-panel border-line shadow-md"}>
+          {!isCanvasOnly ? (
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex-1">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Traffic Pressure
+                </p>
+                <div className="mt-3 flex items-center gap-4">
+                  <input
+                    type="range"
+                    min={400}
+                    max={1_400_000}
+                    step={200}
+                    value={trafficRps}
+                    onChange={(event) => setTrafficRps(Number(event.target.value))}
+                    className="w-full accent-cyan-600"
+                  />
+                  <div className="min-w-[130px] rounded-2xl bg-slate-950 px-4 py-3 text-right text-sm font-medium text-white">
+                    {formatNumber(trafficRps)} req/s
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {concepts.map((concept) => (
+                  <span
+                    key={concept}
+                    className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-medium text-cyan-900"
+                  >
+                    {concept}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {!isCanvasOnly && pendingConnectionSourceId ? (
             <div className="mt-5 rounded-[1.35rem] border border-cyan-200 bg-cyan-50/90 px-4 py-4">
               <p className="text-sm font-medium text-cyan-900">
                 Linking from{" "}
@@ -1904,7 +1985,7 @@ export function DiagramModeler({ headless = false }: { headless?: boolean }) {
             </div>
           ) : null}
 
-          <div className="mt-5 overflow-auto rounded-[1.6rem] border border-slate-200 bg-slate-950/92 p-4">
+          <div className={`${isCanvasOnly ? "h-full overflow-auto" : "mt-5 overflow-auto rounded-[1.6rem] border border-slate-200 bg-slate-950/92 p-4"}`}>
             <div
               ref={canvasRef}
               className="network-grid relative overflow-hidden rounded-[1.35rem]"
@@ -2034,7 +2115,7 @@ export function DiagramModeler({ headless = false }: { headless?: boolean }) {
                     onPointerDown={(event) => handleNodePointerDown(event, node.id)}
                     onClick={(event) => {
                       event.stopPropagation();
-                      handleNodeClick(node.id);
+                      handleNodeClick(node.id, event.shiftKey);
                     }}
                     className="absolute overflow-hidden rounded-[1.35rem] border px-4 py-3 text-left text-white transition duration-150 hover:-translate-y-0.5"
                     style={cardStyle}
@@ -2540,4 +2621,3 @@ export function DiagramModeler({ headless = false }: { headless?: boolean }) {
     </div>
   );
 }
-

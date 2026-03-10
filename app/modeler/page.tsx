@@ -7,37 +7,22 @@ import {
   Github,
   HelpCircle,
   Layout,
-  Menu,
   Moon,
   MousePointer2,
   PanelLeft,
   PanelRight,
   Plus,
-  Redo2,
-  Settings,
   Sparkles,
   Sun,
-  Trash2,
-  Undo2,
 } from "lucide-react";
-import { DiagramModeler } from "../diagram-modeler";
+import { DiagramModeler, type DiagramSelectionInfo } from "../diagram-modeler";
+import { systemExamples, toolbarCategories } from "../spec-data";
 import { useTheme } from "../components/ThemeProvider";
 
 const toolOptions = [
   { id: "select", label: "Select", icon: MousePointer2, shortcut: "V" },
   { id: "add", label: "Add Node", icon: Plus, shortcut: "N" },
   { id: "layout", label: "Auto Layout", icon: Layout, shortcut: "L" },
-];
-
-const featureControls = [
-  { label: "Template", options: ["Blank", "API Platform", "Realtime Analytics", "Global Commerce"] },
-  { label: "Grid", options: ["12 columns", "16 columns", "Auto"] },
-  { label: "Connection Style", options: ["Curved", "Orthogonal", "Straight"] },
-];
-
-const inspectorPresets = [
-  { label: "Simulation Mode", options: ["Live", "Replay", "Compare"] },
-  { label: "Detail Level", options: ["Essential", "Expanded", "Audit"] },
 ];
 
 function isEditableTarget(target: EventTarget | null) {
@@ -49,6 +34,14 @@ function isEditableTarget(target: EventTarget | null) {
   );
 }
 
+function normalizeToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function toCanonicalType(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
 export default function ModelerPage() {
   const { theme, toggleTheme } = useTheme();
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
@@ -56,11 +49,45 @@ export default function ModelerPage() {
   const [activeTool, setActiveTool] = useState("select");
   const [announcement, setAnnouncement] = useState("Modeler ready");
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [selectedScenarioName, setSelectedScenarioName] = useState(
+    systemExamples[0]?.system_name ?? "",
+  );
+  const [selectedElementInfo, setSelectedElementInfo] = useState<DiagramSelectionInfo>(null);
 
   const activeToolLabel = useMemo(
     () => toolOptions.find((tool) => tool.id === activeTool)?.label ?? "Select",
     [activeTool],
   );
+  const selectedScenario = useMemo(
+    () =>
+      systemExamples.find((scenario) => scenario.system_name === selectedScenarioName) ??
+      systemExamples[0],
+    [selectedScenarioName],
+  );
+  const paletteItems = useMemo(
+    () =>
+      toolbarCategories.flatMap((category) =>
+        category.components.map((component) => ({
+          key: normalizeToken(component.name),
+          name: component.name,
+          category: category.category,
+          focus: component.simulation_focus,
+          canonicalType: toCanonicalType(component.name),
+        })),
+      ),
+    [],
+  );
+  const filteredPalette = useMemo(() => {
+    const query = paletteQuery.trim().toLowerCase();
+    if (!query) {
+      return paletteItems;
+    }
+    return paletteItems.filter((item) =>
+      `${item.name} ${item.category} ${item.focus}`.toLowerCase().includes(query),
+    );
+  }, [paletteItems, paletteQuery]);
 
   useEffect(() => {
     setAnnouncement(`Tool set to ${activeToolLabel}`);
@@ -132,6 +159,22 @@ export default function ModelerPage() {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setLeftSidebarOpen((value) => !value)}
+            className="rounded-lg border border-line p-2 transition hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label="Toggle left sidebar"
+            aria-keyshortcuts="Control+B"
+          >
+            <PanelLeft size={18} />
+          </button>
+          <button
+            onClick={() => setRightSidebarOpen((value) => !value)}
+            className="rounded-lg border border-line p-2 transition hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label="Toggle right sidebar"
+            aria-keyshortcuts="Control+I"
+          >
+            <PanelRight size={18} />
+          </button>
+          <button
             onClick={() => setShowShortcuts((value) => !value)}
             className="hidden rounded-lg border border-line px-3 py-1.5 text-xs font-semibold transition hover:border-cyan-500/40 md:inline-flex"
             aria-label="Toggle keyboard shortcuts"
@@ -157,15 +200,18 @@ export default function ModelerPage() {
           >
             <Github size={18} />
           </a>
-          <button className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700">
-            Export
+          <button
+            onClick={() => setShowAnalysis(true)}
+            className="rounded-lg border border-line px-4 py-2 text-sm font-semibold transition hover:border-cyan-500/40"
+          >
+            Analysis
           </button>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside
-          className={`${leftSidebarOpen ? "w-72" : "w-0"} border-r border-line bg-panel/90 backdrop-blur-sm transition-all duration-300 overflow-hidden`}
+          className={`${leftSidebarOpen ? "w-80" : "w-0"} border-r border-line bg-panel/90 backdrop-blur-sm transition-all duration-300 overflow-hidden`}
           aria-label="Modeler controls"
         >
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -180,7 +226,7 @@ export default function ModelerPage() {
             </button>
           </div>
 
-          <div className="flex flex-col gap-6 overflow-y-auto p-4">
+          <div className="flex h-[calc(100%-49px)] flex-col gap-5 overflow-y-auto p-4">
             <section className="space-y-3">
               <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">Tools</p>
               <div className="grid gap-2">
@@ -212,86 +258,62 @@ export default function ModelerPage() {
             </section>
 
             <section className="space-y-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">Quick setup</p>
-              <button className="w-full rounded-xl border border-line bg-background/70 px-4 py-2 text-left text-sm font-medium transition hover:border-cyan-500/40">
-                New model
-              </button>
-              {featureControls.map((control) => (
-                <label key={control.label} className="grid gap-2 text-xs font-semibold text-slate-500">
-                  {control.label}
-                  <select className="w-full rounded-xl border border-line bg-background/80 px-3 py-2 text-sm text-foreground">
-                    {control.options.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
+                Preset system designs ({systemExamples.length})
+              </p>
+              <select
+                value={selectedScenarioName}
+                onChange={(event) => setSelectedScenarioName(event.target.value)}
+                className="w-full rounded-xl border border-line bg-background/80 px-3 py-2 text-sm text-foreground"
+              >
+                {systemExamples.map((scenario) => (
+                  <option key={scenario.system_name} value={scenario.system_name}>
+                    {scenario.system_name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">
+                {selectedScenario?.description}
+              </p>
             </section>
 
             <section className="space-y-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">Accessibility</p>
-              <div className="rounded-2xl border border-line bg-background/70 p-3 text-sm text-slate-600 dark:text-slate-300">
-                <p className="font-semibold text-foreground">Keyboard + mouse parity</p>
-                <p className="mt-2 text-xs leading-relaxed">
-                  Use V, N, and L to switch tools. Toggle sidebars with Ctrl+B and Ctrl+I.
-                </p>
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">Ready elements</p>
+              <input
+                value={paletteQuery}
+                onChange={(event) => setPaletteQuery(event.target.value)}
+                placeholder="Search node types..."
+                className="w-full rounded-xl border border-line bg-background/80 px-3 py-2 text-sm text-foreground"
+              />
+              <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1">
+                {filteredPalette.map((item) => (
+                  <button
+                    key={`${item.category}-${item.name}`}
+                    type="button"
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("application/x-network-node", JSON.stringify(item));
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                    className="rounded-xl border border-line bg-background/70 px-3 py-3 text-left transition hover:border-cyan-500/40"
+                  >
+                    <p className="text-sm font-semibold">{item.name}</p>
+                    <p className="mt-1 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">{item.category}</p>
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{item.focus}</p>
+                  </button>
+                ))}
               </div>
             </section>
           </div>
         </aside>
 
-        <main id="modeler" className="relative flex-1 overflow-hidden">
-          <div className="absolute left-4 top-4 z-20 flex gap-2">
-            <button
-              onClick={() => setLeftSidebarOpen((value) => !value)}
-              className="rounded-xl border border-line bg-panel px-2.5 py-2 backdrop-blur hover:bg-white dark:hover:bg-slate-800"
-              aria-label="Toggle left sidebar"
-              aria-keyshortcuts="Control+B"
-            >
-              <Menu size={18} />
-            </button>
-            <button
-              onClick={() => setRightSidebarOpen((value) => !value)}
-              className="rounded-xl border border-line bg-panel px-2.5 py-2 backdrop-blur hover:bg-white dark:hover:bg-slate-800"
-              aria-label="Toggle right sidebar"
-              aria-keyshortcuts="Control+I"
-            >
-              <PanelRight size={18} />
-            </button>
-          </div>
-
-          <DiagramModeler />
-
-          <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-line bg-panel px-2 py-2 backdrop-blur-lg shadow-2xl">
-            <button
-              className="rounded-xl p-2 transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              title="Undo (Ctrl+Z)"
-            >
-              <Undo2 size={18} />
-            </button>
-            <button
-              className="rounded-xl p-2 transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              title="Redo (Ctrl+Y)"
-            >
-              <Redo2 size={18} />
-            </button>
-            <div className="h-6 w-px bg-line" />
-            <button
-              className="rounded-xl p-2 text-red-500 transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              title="Delete (Del)"
-            >
-              <Trash2 size={18} />
-            </button>
-            <div className="h-6 w-px bg-line" />
-            <button
-              className="rounded-xl p-2 transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              title="Settings"
-            >
-              <Settings size={18} />
-            </button>
-          </div>
+        <main id="modeler" className="min-h-0 flex-1 overflow-hidden bg-slate-950">
+          <DiagramModeler
+            headless
+            canvasOnly
+            scenarioName={selectedScenarioName}
+            onSelectionInfoChange={setSelectedElementInfo}
+          />
         </main>
 
         <aside
@@ -299,7 +321,7 @@ export default function ModelerPage() {
           aria-label="Inspector"
         >
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-slate-500">Inspector</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-slate-500">Documentation</p>
             <button
               onClick={() => setRightSidebarOpen((value) => !value)}
               className="rounded-md p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -309,63 +331,60 @@ export default function ModelerPage() {
               <PanelRight size={16} />
             </button>
           </div>
-          <div className="flex flex-col gap-6 overflow-y-auto p-4">
+          <div className="flex h-[calc(100%-49px)] flex-col gap-5 overflow-y-auto p-4">
             <section className="space-y-3">
-              <p className="text-sm font-semibold text-slate-500">Properties</p>
-              <label className="grid gap-2 text-xs font-semibold text-slate-500">
-                Node label
-                <input
-                  type="text"
-                  placeholder="Select a node"
-                  className="w-full rounded-xl border border-line bg-background/80 px-3 py-2 text-sm text-foreground"
-                />
-              </label>
-              <label className="grid gap-2 text-xs font-semibold text-slate-500">
-                Provider
-                <select className="w-full rounded-xl border border-line bg-background/80 px-3 py-2 text-sm text-foreground">
-                  <option>AWS</option>
-                  <option>Azure</option>
-                  <option>GCP</option>
-                </select>
-              </label>
-              <label className="grid gap-2 text-xs font-semibold text-slate-500">
-                Region
-                <input
-                  type="text"
-                  placeholder="us-east-1"
-                  className="w-full rounded-xl border border-line bg-background/80 px-3 py-2 text-sm text-foreground"
-                />
-              </label>
+              <p className="text-sm font-semibold text-slate-500">Selected element</p>
+              {selectedElementInfo?.kind === "node" ? (
+                <div className="rounded-2xl border border-line bg-background/70 p-4 text-sm text-slate-600 dark:text-slate-300">
+                  <p className="text-base font-semibold text-foreground">{selectedElementInfo.label}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-500">
+                    {selectedElementInfo.category} / {selectedElementInfo.type}
+                  </p>
+                  <p className="mt-3 leading-6">{selectedElementInfo.focus}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <span className="rounded-lg border border-line px-2 py-1">
+                      Provider: {selectedElementInfo.provider ?? "n/a"}
+                    </span>
+                    <span className="rounded-lg border border-line px-2 py-1">
+                      Region: {selectedElementInfo.region ?? "n/a"}
+                    </span>
+                  </div>
+                </div>
+              ) : selectedElementInfo?.kind === "edge" ? (
+                <div className="rounded-2xl border border-line bg-background/70 p-4 text-sm text-slate-600 dark:text-slate-300">
+                  <p className="text-base font-semibold text-foreground">Connection</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">
+                    {selectedElementInfo.protocol}
+                  </p>
+                  <p className="mt-3 leading-6">{selectedElementInfo.purpose}</p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-line bg-background/70 p-4 text-sm text-slate-600 dark:text-slate-300">
+                  Select a node or connection in the canvas to view element documentation.
+                </div>
+              )}
             </section>
 
             <section className="space-y-3">
-              <p className="text-sm font-semibold text-slate-500">Automation</p>
-              {inspectorPresets.map((control) => (
-                <label key={control.label} className="grid gap-2 text-xs font-semibold text-slate-500">
-                  {control.label}
-                  <select className="w-full rounded-xl border border-line bg-background/80 px-3 py-2 text-sm text-foreground">
-                    {control.options.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-            </section>
-
-            <section className="space-y-3">
-              <p className="text-sm font-semibold text-slate-500">Action center</p>
+              <p className="text-sm font-semibold text-slate-500">Connection workflow</p>
               <div className="rounded-2xl border border-line bg-background/70 p-4 text-sm text-slate-600 dark:text-slate-300">
-                <p className="font-semibold text-foreground">Live validation</p>
-                <p className="mt-2 text-xs leading-relaxed">
-                  Validation runs as you connect nodes. Use shortcuts to iterate without losing momentum.
-                </p>
+                <p>1. Drag components from the left sidebar into the canvas.</p>
+                <p className="mt-2">2. Hold Shift and click a source node to start a connection.</p>
+                <p className="mt-2">3. Click a target node to create the connection.</p>
               </div>
-              <button className="flex w-full items-center justify-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-medium transition hover:border-cyan-500/40">
+            </section>
+
+            <section className="space-y-3">
+              <p className="text-sm font-semibold text-slate-500">Support</p>
+              <a
+                href="https://github.com/donnemartin/system-design-primer"
+                target="_blank"
+                rel="noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-medium transition hover:border-cyan-500/40"
+              >
                 <HelpCircle size={14} />
-                Support & documentation
-              </button>
+                System design documentation
+              </a>
             </section>
           </div>
         </aside>
@@ -374,14 +393,14 @@ export default function ModelerPage() {
       <footer className="flex h-10 items-center justify-between border-t border-line bg-panel px-4 text-[11px] font-medium text-slate-500">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
+            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
             Simulation online
           </span>
           <span className="hidden sm:inline">Active tool: {activeToolLabel}</span>
         </div>
         <div className="hidden items-center gap-4 md:flex">
-          <span>Shortcuts: V, N, L, Ctrl+B, Ctrl+I</span>
-          <span>v1.1.0</span>
+          <span>Shortcuts: V, N, L, Ctrl+B, Ctrl+I, Shift+Click connect</span>
+          <span>Presets: {systemExamples.length}</span>
         </div>
         <span className="sr-only" role="status" aria-live="polite">
           {announcement}
@@ -410,18 +429,63 @@ export default function ModelerPage() {
                 <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">Ctrl+I</kbd>
               </div>
               <div className="flex items-center justify-between rounded-2xl border border-line px-3 py-2">
-                <span>Select tool</span>
-                <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">V</kbd>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-line px-3 py-2">
-                <span>Add node tool</span>
-                <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">N</kbd>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-line px-3 py-2">
-                <span>Auto layout</span>
-                <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">L</kbd>
+                <span>Start connection from node</span>
+                <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">Shift+Click</kbd>
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showAnalysis ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-6 backdrop-blur">
+          <div className="h-[min(84vh,760px)] w-full max-w-5xl overflow-y-auto rounded-3xl border border-line bg-background p-7 shadow-2xl">
+            <div className="flex items-start justify-between gap-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-700">Final Summary Analysis</p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight">{selectedScenario?.system_name}</h2>
+              </div>
+              <button
+                onClick={() => setShowAnalysis(false)}
+                className="rounded-full border border-line px-3 py-1 text-xs font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm leading-7 text-slate-600 dark:text-slate-300">
+              {selectedScenario?.description}
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              {selectedScenario?.design_patterns.map((pattern) => (
+                <span key={pattern} className="rounded-full border border-line bg-panel px-3 py-1 text-xs">
+                  {pattern}
+                </span>
+              ))}
+            </div>
+
+            <section className="mt-6 rounded-2xl border border-line bg-panel px-5 py-5">
+              <h3 className="text-lg font-semibold">Scale Profile</h3>
+              <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                {selectedScenario
+                  ? Object.entries(selectedScenario.scale).map(([key, value]) => (
+                    <li key={key}>
+                      <span className="font-semibold text-foreground">{key.replaceAll("_", " ")}:</span> {value}
+                    </li>
+                  ))
+                  : null}
+              </ul>
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-line bg-panel px-5 py-5">
+              <h3 className="text-lg font-semibold">Next Actions</h3>
+              <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
+                <li>Drag components from the left panel to extend this baseline.</li>
+                <li>Connect critical paths with Shift+Click source then target.</li>
+                <li>Validate each selected node’s documentation in the right sidebar.</li>
+              </ol>
+            </section>
           </div>
         </div>
       ) : null}
