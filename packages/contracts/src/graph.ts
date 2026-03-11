@@ -5,7 +5,7 @@ import {
   isString,
   mergeValidationErrors,
   type ValidationResult,
-} from "./validation";
+} from "./validation.ts";
 
 export type GraphNodeSettingsValue = string | number | boolean;
 
@@ -32,6 +32,18 @@ export type GraphEdge = {
   purpose: string;
 };
 
+export type GraphEnvironmentProfile = {
+  deploymentType: "cloud" | "self-hosted";
+  provider: string;
+  region?: string;
+  availabilityTarget?: string;
+  latencyTargetMs?: string;
+  dailyActiveUsers?: string;
+  networkBudget?: string;
+  powerBudget?: string;
+  notes?: string;
+};
+
 export type GraphDocument = {
   schemaVersion: "1.0";
   nodes: GraphNode[];
@@ -40,6 +52,7 @@ export type GraphDocument = {
     name?: string;
     description?: string;
     tags?: string[];
+    environment?: GraphEnvironmentProfile;
   };
 };
 
@@ -177,4 +190,3 @@ export function validateGraphDocument(value: unknown): ValidationResult {
 
   return mergeValidationErrors(topLevelErrors, nodeSemanticErrors, edgeSemanticErrors);
 }
-

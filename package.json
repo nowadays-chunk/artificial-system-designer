@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test:prepare": "tsc -p tsconfig.tests.json",
+    "build:contracts": "npm --prefix packages/contracts run build",
+    "test:prepare": "npm run build:contracts && tsc -p tsconfig.tests.json",
     "test:e2e": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/e2e/modeler-core.spec.js",
     "test:integration:contracts": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/integration/api-contracts.spec.js",
     "test:integration:memory": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/integration/memory-simulation.spec.js",
@@ -20,6 +21,7 @@
     "test:ci": "npm run test:prepare && npm run test:integration && npm run test:e2e && npm run test:perf"
   },
   "dependencies": {
+    "@asd/contracts": "file:packages/contracts",
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
     "react": "19.2.3",

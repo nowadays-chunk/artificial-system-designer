@@ -4,7 +4,7 @@ import {
   isStringArray,
   mergeValidationErrors,
   type ValidationResult,
-} from "./validation";
+} from "./validation.ts";
 
 export type FindingSeverity = "info" | "warn" | "error" | "blocker";
 
@@ -152,4 +152,3 @@ export function validateAnalysisReport(value: unknown): ValidationResult {
 
   return mergeValidationErrors();
 }
-

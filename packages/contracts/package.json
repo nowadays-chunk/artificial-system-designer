@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "exports": {
-    ".": "./src/index.ts",
-    "./analysis": "./src/analysis.ts",
-    "./graph": "./src/graph.ts",
-    "./simulation": "./src/simulation.ts",
-    "./validation": "./src/validation.ts"
+    ".": "./dist/index.js",
+    "./analysis": "./dist/analysis.js",
+    "./graph": "./dist/graph.js",
+    "./simulation": "./dist/simulation.js",
+    "./validation": "./dist/validation.js"
   }
 }
-

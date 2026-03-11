@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Command,
   Github,
@@ -16,11 +16,11 @@ import {
   Sun,
 } from "lucide-react";
 import { DiagramModeler, type DiagramSelectionInfo } from "../diagram-modeler";
-import { systemExamples, toolbarCategories } from "../spec-data";
+import { cloudProviders, systemExamples, toolbarCategories } from "../spec-data";
 import { useTheme } from "../components/ThemeProvider";
 import { useModelerShellUiStore, type ModelerTool } from "./state/ui-store";
 import { createDiagramVersion, createWorkspace } from "../../lib/api-client/workspaces";
-import type { GraphDocument } from "../../packages/contracts/src/graph";
+import type { GraphDocument, GraphEnvironmentProfile } from "../../packages/contracts/src/graph";
 import { shortcutById, shortcutsByScope } from "./a11y/shortcuts";
 
 const toolOptions: { id: ModelerTool; label: string; icon: typeof MousePointer2; shortcut: string }[] = [
@@ -28,6 +28,25 @@ const toolOptions: { id: ModelerTool; label: string; icon: typeof MousePointer2;
   { id: "add", label: "Add Node", icon: Plus, shortcut: "N" },
   { id: "layout", label: "Auto Layout", icon: Layout, shortcut: "L" },
 ];
+
+const LOCAL_SAVE_STORAGE_KEY = "asd-modeler-local-saves";
+
+type LocalSaveEntry = {
+  id: string;
+  title: string;
+  description?: string;
+  provider: string;
+  savedAt: string;
+  environment: GraphEnvironmentProfile;
+  graph: GraphDocument;
+};
+
+type SimulationTargetsState = {
+  availability: string;
+  latency: string;
+  dailyActiveUsers: string;
+};
+type SimulationTargetField = keyof SimulationTargetsState;
 
 function isEditableTarget(target: EventTarget | null) {
   return (
@@ -51,6 +70,31 @@ export default function ModelerPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [latestGraph, setLatestGraph] = useState<GraphDocument | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [diagramTitle, setDiagramTitle] = useState(
+    () => systemExamples[0]?.system_name ?? "Custom architecture",
+  );
+  const [diagramDescription, setDiagramDescription] = useState<string>(
+    systemExamples[0]?.description ?? "",
+  );
+  const [environmentMode, setEnvironmentMode] = useState<"cloud" | "self-hosted">("cloud");
+  const [selectedCloudProvider, setSelectedCloudProvider] = useState(
+    () => cloudProviders[0]?.name ?? "AWS",
+  );
+  const [cloudRegion, setCloudRegion] = useState("us-east-1");
+  const [selfHostedRegion, setSelfHostedRegion] = useState("Edge Lab Cluster");
+  const [selfHostedNetworkBudget, setSelfHostedNetworkBudget] = useState("150 Gbps");
+  const [selfHostedPowerBudget, setSelfHostedPowerBudget] = useState("220 kW");
+  const [simulationTargets, setSimulationTargets] = useState<SimulationTargetsState>({
+    availability: "99.95%",
+    latency: "120",
+    dailyActiveUsers: "1M",
+  });
+  const [localSaveStatus, setLocalSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [localSaves, setLocalSaves] = useState<LocalSaveEntry[]>([]);
+  const [connectionStarterNodeId, setConnectionStarterNodeId] = useState<string | null>(null);
+  const [newDiagramSignal, setNewDiagramSignal] = useState<number | null>(null);
   const {
     leftSidebarOpen,
     setLeftSidebarOpen,
@@ -71,6 +115,102 @@ export default function ModelerPage() {
     selectedElementInfo,
     setSelectedElementInfo,
   } = useModelerShellUiStore<DiagramSelectionInfo>(systemExamples[0]?.system_name ?? "", null);
+
+  const environmentProfile = useMemo<GraphEnvironmentProfile>(() => {
+    return {
+      deploymentType: environmentMode,
+      provider: environmentMode === "cloud" ? selectedCloudProvider : "Self-hosted",
+      region: environmentMode === "cloud" ? cloudRegion : selfHostedRegion,
+      availabilityTarget: simulationTargets.availability,
+      latencyTargetMs: simulationTargets.latency,
+      dailyActiveUsers: simulationTargets.dailyActiveUsers,
+      networkBudget: environmentMode === "self-hosted" ? selfHostedNetworkBudget : undefined,
+      powerBudget: environmentMode === "self-hosted" ? selfHostedPowerBudget : undefined,
+      notes: environmentMode === "self-hosted" ? "Deterministic self-hosted lab" : undefined,
+    };
+  }, [
+    environmentMode,
+    selectedCloudProvider,
+    cloudRegion,
+    selfHostedRegion,
+    selfHostedNetworkBudget,
+    selfHostedPowerBudget,
+    simulationTargets,
+  ]);
+
+  const handleNewDiagram = useCallback(() => {
+    setNewDiagramSignal(Date.now());
+    setSelectedElementInfo(null);
+    setAnnouncement("Blank canvas ready. Drop components from the left palette.");
+  }, [setAnnouncement, setSelectedElementInfo]);
+
+  const handleSaveLocal = useCallback(() => {
+    if (!latestGraph) {
+      setLocalSaveStatus("error");
+      setAnnouncement("Nothing on the canvas to save yet.");
+      return;
+    }
+    setLocalSaveStatus("saving");
+    const title = diagramTitle.trim() || selectedScenarioName || "Custom architecture";
+    const description = diagramDescription.trim() || selectedScenario?.description || "";
+    const record: LocalSaveEntry = {
+      id: `local-${Date.now()}`,
+      title,
+      description,
+      provider: environmentProfile.provider,
+      savedAt: new Date().toISOString(),
+      environment: environmentProfile,
+      graph: latestGraph,
+    };
+    setLocalSaves((current) => {
+      const next = [record, ...current].slice(0, 5);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(LOCAL_SAVE_STORAGE_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+    setLocalSaveStatus("saved");
+    setAnnouncement(`${title} saved locally.`);
+    setTimeout(() => setLocalSaveStatus("idle"), 1800);
+  }, [
+    diagramDescription,
+    diagramTitle,
+    environmentProfile,
+    latestGraph,
+    selectedScenario,
+    selectedScenarioName,
+    setAnnouncement,
+  ]);
+
+  const startConnectionFromSelection = useCallback(() => {
+    if (selectedElementInfo?.kind !== "node") {
+      setAnnouncement("Select a node to inject the next connection.");
+      return;
+    }
+    setConnectionStarterNodeId(selectedElementInfo.id);
+    setAnnouncement(`Linking from ${selectedElementInfo.label}. Click the destination node.`);
+  }, [selectedElementInfo, setAnnouncement, setConnectionStarterNodeId]);
+
+  const updateSimulationTarget = useCallback((field: SimulationTargetField, value: string) => {
+    setSimulationTargets((current) => ({ ...current, [field]: value }));
+  }, []);
+
+  const localSaveLabel =
+    localSaveStatus === "saving"
+      ? "Saving locally..."
+      : localSaveStatus === "saved"
+        ? "Saved locally"
+        : localSaveStatus === "error"
+          ? "Local save failed"
+          : "Local copy ready";
+  const remoteSaveLabel =
+    saveStatus === "saving"
+      ? "Saving remotely..."
+      : saveStatus === "saved"
+        ? "Saved remotely"
+        : saveStatus === "error"
+          ? "Remote save failed"
+          : "Remote workspace idle";
 
   const activeToolLabel = useMemo(
     () => toolOptions.find((tool) => tool.id === activeTool)?.label ?? "Select",
@@ -110,10 +250,28 @@ export default function ModelerPage() {
   const shortcutsShortcut = shortcutById("toggle-shortcuts");
   const openAnalysisShortcut = shortcutById("open-analysis");
   const saveVersionShortcut = shortcutById("save-version");
+  const newDiagramShortcut = shortcutById("new-diagram");
+  const saveLocalShortcut = shortcutById("save-local");
+  const connectShortcut = shortcutById("connect-from-selection");
 
   useEffect(() => {
     setAnnouncement(`Tool set to ${activeToolLabel}`);
   }, [activeToolLabel, setAnnouncement]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const stored = window.localStorage.getItem(LOCAL_SAVE_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as LocalSaveEntry[];
+        setLocalSaves(parsed);
+      }
+    } catch {
+      setLocalSaves([]);
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -155,7 +313,12 @@ export default function ModelerPage() {
         setAnnouncement("Opened analysis panel");
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        handleNewDiagram();
+      }
+
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "s") {
         event.preventDefault();
         if (!workspaceId || !latestGraph) {
           setSaveStatus("error");
@@ -171,6 +334,16 @@ export default function ModelerPage() {
           .catch(() => setSaveStatus("error"));
       }
 
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        handleSaveLocal();
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        startConnectionFromSelection();
+      }
+
       if (event.key === "Escape") {
         setShowShortcuts(false);
         setShowAnalysis(false);
@@ -180,6 +353,8 @@ export default function ModelerPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    handleNewDiagram,
+    handleSaveLocal,
     setActiveTool,
     setAnnouncement,
     latestGraph,
@@ -187,6 +362,7 @@ export default function ModelerPage() {
     setRightSidebarOpen,
     setShowAnalysis,
     setShowShortcuts,
+    startConnectionFromSelection,
     workspaceId,
   ]);
 
@@ -221,7 +397,9 @@ export default function ModelerPage() {
       await createDiagramVersion({
         workspaceId,
         graph: latestGraph,
-        message: `Saved from modeler (${new Date().toISOString()})`,
+        message: diagramTitle
+          ? `Saved "${diagramTitle}" (${new Date().toISOString()})`
+          : `Saved from modeler (${new Date().toISOString()})`,
       });
       setSaveStatus("saved");
     } catch {
@@ -338,8 +516,227 @@ export default function ModelerPage() {
             </button>
           </div>
 
-          <div className="flex h-[calc(100%-49px)] flex-col gap-5 overflow-y-auto p-4">
-            <section className="space-y-3">
+          <div className="flex h-[calc(100%-49px)] flex-col gap-4 overflow-y-auto p-4">
+            <section className="space-y-3 rounded-[1.4rem] border border-line bg-panel/70 p-4 shadow-lg">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
+                    Diagram builder
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Name, describe, and persist your architecture instantly.
+                  </p>
+                </div>
+                <kbd className="rounded-md border border-white/30 bg-slate-900/70 px-2 py-1 text-[0.6rem] text-white">
+                  {newDiagramShortcut?.keys ?? "Ctrl+Shift+N"}
+                </kbd>
+              </div>
+              <div className="space-y-2">
+                <input
+                  value={diagramTitle}
+                  onChange={(event) => setDiagramTitle(event.target.value)}
+                  placeholder="Diagram name"
+                  className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                />
+                <textarea
+                  value={diagramDescription}
+                  onChange={(event) => setDiagramDescription(event.target.value)}
+                  rows={3}
+                  placeholder="Describe the intent or simulation goals"
+                  className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={handleNewDiagram}
+                  className="rounded-2xl border border-line bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:border-cyan-500/60 hover:bg-slate-800"
+                  aria-keyshortcuts={newDiagramShortcut?.ariaKeyShortcuts}
+                >
+                  New from scratch
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveLocal}
+                  className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-cyan-500/60"
+                  aria-keyshortcuts={saveLocalShortcut?.ariaKeyShortcuts}
+                >
+                  Save locally
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveVersion}
+                className="w-full rounded-2xl border border-line bg-background/60 px-4 py-2 text-sm font-semibold transition hover:border-cyan-500/60 hover:bg-panel"
+                aria-live="polite"
+                aria-keyshortcuts={saveVersionShortcut?.ariaKeyShortcuts}
+              >
+                Save to remote workspace
+              </button>
+              <div className="flex items-center justify-between text-[0.65rem] text-slate-500">
+                <span>{localSaveLabel}</span>
+                <span>{remoteSaveLabel}</span>
+              </div>
+              {localSaves.length > 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-900">{localSaves[0].title}</p>
+                  <p className="text-[0.65rem] text-slate-500">
+                    {new Date(localSaves[0].savedAt).toLocaleString()}
+                  </p>
+                  <p className="text-[0.65rem] text-slate-500">Provider: {localSaves[0].provider}</p>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="space-y-3 rounded-[1.4rem] border border-line bg-background/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
+                    Environment profile
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Choose cloud or self-hosted parameters that feed the simulator.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1 text-[0.65rem] text-slate-500">
+                  <span>Provider</span>
+                  <span>Targets</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEnvironmentMode("cloud")}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    environmentMode === "cloud"
+                      ? "border border-cyan-500/60 bg-cyan-500/10 text-cyan-600"
+                      : "border border-line text-slate-600"
+                  }`}
+                >
+                  Cloud provider
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnvironmentMode("self-hosted")}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    environmentMode === "self-hosted"
+                      ? "border border-amber-500/60 bg-amber-500/10 text-amber-600"
+                      : "border border-line text-slate-600"
+                  }`}
+                >
+                  Self-hosted lab
+                </button>
+              </div>
+              {environmentMode === "cloud" ? (
+                <>
+                  <label className="text-[0.62rem] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Cloud provider
+                  </label>
+                  <select
+                    value={selectedCloudProvider}
+                    onChange={(event) => setSelectedCloudProvider(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
+                  >
+                    {cloudProviders.map((provider) => (
+                      <option key={provider.name} value={provider.name}>
+                        {provider.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={cloudRegion}
+                    onChange={(event) => setCloudRegion(event.target.value)}
+                    placeholder="Region (us-east-1)"
+                    className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                  />
+                </>
+              ) : (
+                <>
+                  <input
+                    value={selfHostedRegion}
+                    onChange={(event) => setSelfHostedRegion(event.target.value)}
+                    placeholder="On-prem region"
+                    className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                  />
+                  <input
+                    value={selfHostedNetworkBudget}
+                    onChange={(event) => setSelfHostedNetworkBudget(event.target.value)}
+                    placeholder="Network budget (Gbps)"
+                    className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                  />
+                  <input
+                    value={selfHostedPowerBudget}
+                    onChange={(event) => setSelfHostedPowerBudget(event.target.value)}
+                    placeholder="Power budget (kW)"
+                    className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                  />
+                </>
+              )}
+              <div className="grid gap-2 text-xs">
+                <input
+                  value={simulationTargets.availability}
+                  onChange={(event) => updateSimulationTarget("availability", event.target.value)}
+                  placeholder="Availability target (e.g. 99.95%)"
+                  className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                />
+                <input
+                  value={simulationTargets.latency}
+                  onChange={(event) => updateSimulationTarget("latency", event.target.value)}
+                  placeholder="Latency target (ms)"
+                  className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                />
+                <input
+                  value={simulationTargets.dailyActiveUsers}
+                  onChange={(event) => updateSimulationTarget("dailyActiveUsers", event.target.value)}
+                  placeholder="Daily active users (e.g. 1M)"
+                  className="w-full rounded-2xl border border-slate-200 bg-background/70 px-3 py-2 text-sm text-foreground outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[0.65rem] text-slate-600">
+                <p>Region: {environmentProfile.region}</p>
+                <p>Provider: {environmentProfile.provider}</p>
+                <p>
+                  Targets: {environmentProfile.availabilityTarget} availability ·{" "}
+                  {environmentProfile.latencyTargetMs} ms · {environmentProfile.dailyActiveUsers} DAUs
+                </p>
+              </div>
+            </section>
+
+            <section className="space-y-3 rounded-[1.4rem] border border-line bg-background/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
+                    Connection builder
+                  </p>
+                  <p className="text-xs leading-5 text-slate-500">
+                    Hold Shift + Click a source node, then click a target. Use the button when you need more control.
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1 text-[0.65rem] text-slate-500">
+                  <div className="flex items-center gap-1">
+                    <kbd className="rounded border border-line px-1.5 py-0.5">⇧ Shift</kbd>
+                    <span>+ Click</span>
+                  </div>
+                  <kbd className="rounded border border-line px-2 py-1 text-[0.65rem]">
+                    {connectShortcut?.keys ?? "Ctrl+Shift+C"}
+                  </kbd>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={startConnectionFromSelection}
+                className="w-full rounded-2xl border border-line bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:border-cyan-500/60"
+                aria-keyshortcuts={connectShortcut?.ariaKeyShortcuts}
+              >
+                Start connection from selection
+              </button>
+              <p className="text-[0.65rem] text-slate-500">
+                Selected:{' '}
+                {selectedElementInfo?.kind === "node" ? selectedElementInfo.label : "No node selected"}
+              </p>
+            </section>
+
+            <section className="space-y-3 rounded-[1.4rem] border border-line bg-background/60 p-3">
               <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">Tools</p>
               <div className="grid gap-2">
                 {toolOptions.map((tool) => {
@@ -369,7 +766,7 @@ export default function ModelerPage() {
               </div>
             </section>
 
-            <section className="space-y-3">
+            <section className="space-y-3 rounded-[1.4rem] border border-line bg-background/60 p-3">
               <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
                 Preset system designs ({systemExamples.length})
               </p>
@@ -389,8 +786,10 @@ export default function ModelerPage() {
               </p>
             </section>
 
-            <section className="space-y-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">Ready elements</p>
+            <section className="space-y-3 rounded-[1.4rem] border border-line bg-background/60 p-3">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
+                Ready elements
+              </p>
               <input
                 value={paletteQuery}
                 onChange={(event) => setPaletteQuery(event.target.value)}
@@ -410,7 +809,9 @@ export default function ModelerPage() {
                     className="rounded-xl border border-line bg-background/70 px-3 py-3 text-left transition hover:border-cyan-500/40"
                   >
                     <p className="text-sm font-semibold">{item.name}</p>
-                    <p className="mt-1 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">{item.category}</p>
+                    <p className="mt-1 text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">
+                      {item.category}
+                    </p>
                     <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{item.focus}</p>
                   </button>
                 ))}
@@ -427,6 +828,12 @@ export default function ModelerPage() {
             workspaceId={workspaceId ?? undefined}
             onSelectionInfoChange={setSelectedElementInfo}
             onGraphDocumentChange={setLatestGraph}
+            diagramMetadataName={diagramTitle}
+            diagramMetadataDescription={diagramDescription}
+            environmentProfile={environmentProfile}
+            resetSignal={newDiagramSignal}
+            pendingConnectionFrom={connectionStarterNodeId}
+            onPendingConnectionConsumed={() => setConnectionStarterNodeId(null)}
           />
         </main>
 
@@ -513,7 +920,10 @@ export default function ModelerPage() {
           <span className="hidden sm:inline">Active tool: {activeToolLabel}</span>
         </div>
         <div className="hidden items-center gap-4 md:flex">
-          <span>Shortcuts: V, N, L, Ctrl+B, Ctrl+I, Ctrl+S, Ctrl+Shift+A</span>
+          <span>
+            Shortcuts: V, N, L, Ctrl+B, Ctrl+I, Ctrl+S, Ctrl+Shift+A, Ctrl+Shift+N,
+            Ctrl+Shift+S, Ctrl+Shift+C
+          </span>
           <span>Presets: {systemExamples.length}</span>
         </div>
         <span className="sr-only" role="status" aria-live="polite">

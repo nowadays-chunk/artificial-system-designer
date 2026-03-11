@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import type { ValidationFinding } from "../../../../../packages/contracts/src/analysis";
+import type { ValidationFinding } from "@asd/contracts/analysis";
 import type {
   SimulationMetrics,
   SimulationRun,
   SimulationScorecard,
   SimulationTick,
-} from "../../../../../packages/contracts/src/simulation";
+} from "@asd/contracts/simulation";
 import { readDbConfigFromEnv } from "../../lib/db/config";
 import type {
   CreateSimulationRunInput,

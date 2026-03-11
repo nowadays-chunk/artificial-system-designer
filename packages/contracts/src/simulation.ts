@@ -1,4 +1,4 @@
-import { isNumber, isRecord, isString, mergeValidationErrors, type ValidationResult } from "./validation";
+import { isNumber, isRecord, isString, mergeValidationErrors, type ValidationResult } from "./validation.ts";
 
 export type SimulationProfile = "normal" | "burst" | "regional_outage" | "dependency_failure";
 export type SimulationStatus = "queued" | "running" | "completed" | "failed";
@@ -154,4 +154,3 @@ export function validateSimulationRun(value: unknown): ValidationResult {
 
   return mergeValidationErrors();
 }
-

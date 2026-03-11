@@ -19,7 +19,7 @@ import {
   validationRules,
   type Scenario,
 } from "./spec-data";
-import type { GraphDocument } from "../packages/contracts/src/graph";
+import type { GraphDocument, GraphEnvironmentProfile } from "../packages/contracts/src/graph";
 import { useGraphStore } from "./modeler/state/graph-store";
 import { useSimulationStore } from "./modeler/state/sim-store";
 import { useDiagramUiStore } from "./modeler/state/ui-store";
@@ -1344,6 +1344,12 @@ export function DiagramModeler({
   workspaceId,
   onSelectionInfoChange,
   onGraphDocumentChange,
+  diagramMetadataName,
+  diagramMetadataDescription,
+  environmentProfile,
+  resetSignal,
+  pendingConnectionFrom,
+  onPendingConnectionConsumed,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1351,10 +1357,18 @@ export function DiagramModeler({
   workspaceId?: string;
   onSelectionInfoChange?: (selection: DiagramSelectionInfo) => void;
   onGraphDocumentChange?: (graph: GraphDocument) => void;
+  diagramMetadataName?: string | null;
+  diagramMetadataDescription?: string;
+  environmentProfile?: GraphEnvironmentProfile | null;
+  resetSignal?: number | null;
+  pendingConnectionFrom?: string | null;
+  onPendingConnectionConsumed?: () => void;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const generatedIdRef = useRef(0);
+  const resetSignalRef = useRef<number | null>(null);
+  const pendingConnectionRef = useRef<string | null>(null);
   const initialScenarioName = scenarioName ?? systemExamples[0]?.system_name ?? "";
   const initialScenario =
     systemExamples.find((scenario) => scenario.system_name === initialScenarioName) ??
@@ -1436,11 +1450,19 @@ export function DiagramModeler({
   const [remoteSimulationRun, setRemoteSimulationRun] = useState<RemoteSimulationRun | null>(null);
 
   const graphDocument = useMemo<GraphDocument>(
-    () => ({
-      schemaVersion: "1.0",
-      nodes: nodes.map((node) => ({
-        id: node.id,
-        type: node.type,
+    () => {
+      const metadataTags = environmentProfile
+        ? [
+            `provider:${environmentProfile.provider}`,
+            `mode:${environmentProfile.deploymentType}`,
+            `availability:${environmentProfile.availabilityTarget}`,
+          ]
+        : [];
+      return {
+        schemaVersion: "1.0",
+        nodes: nodes.map((node) => ({
+          id: node.id,
+          type: node.type,
         label: node.label,
         category: node.category,
         focus: node.focus,
@@ -1460,10 +1482,22 @@ export function DiagramModeler({
         purpose: edge.purpose,
       })),
       metadata: {
-        name: selectedScenarioName,
+        name: diagramMetadataName ?? selectedScenarioName,
+        description: diagramMetadataDescription ?? selectedScenario?.description,
+        tags: metadataTags.length ? metadataTags : undefined,
+        environment: environmentProfile ?? undefined,
       },
-    }),
-    [edges, nodes, selectedScenarioName],
+    };
+    },
+    [
+      edges,
+      nodes,
+      selectedScenarioName,
+      diagramMetadataName,
+      diagramMetadataDescription,
+      environmentProfile,
+      selectedScenario,
+    ],
   );
 
   const localValidationMessages = useMemo(
@@ -1877,6 +1911,53 @@ export function DiagramModeler({
     }
     applyScenarioSelection(scenarioName);
   }, [applyScenarioSelection, scenarioName, selectedScenarioName]);
+
+  useEffect(() => {
+    if (resetSignal == null || resetSignalRef.current === resetSignal) {
+      return;
+    }
+    resetSignalRef.current = resetSignal;
+    replaceGraph([], [], null);
+    setGuidedStepCount(0);
+    setTrafficRps(400);
+    resetTick();
+    setSelection(null);
+  }, [
+    resetSignal,
+    replaceGraph,
+    resetTick,
+    setGuidedStepCount,
+    setSelection,
+    setTrafficRps,
+  ]);
+
+  useEffect(() => {
+    if (pendingConnectionFrom == null) {
+      pendingConnectionRef.current = null;
+      return;
+    }
+    if (pendingConnectionRef.current === pendingConnectionFrom) {
+      return;
+    }
+    pendingConnectionRef.current = pendingConnectionFrom;
+    const node = nodes.find((item) => item.id === pendingConnectionFrom);
+    if (!node) {
+      return;
+    }
+    setDraftProtocol(defaultProtocol(node, node));
+    setDraftPurpose("Primary request flow");
+    setSelection({ kind: "node", id: node.id });
+    setPendingConnectionSourceId(node.id);
+    onPendingConnectionConsumed?.();
+  }, [
+    onPendingConnectionConsumed,
+    pendingConnectionFrom,
+    nodes,
+    setDraftPurpose,
+    setDraftProtocol,
+    setPendingConnectionSourceId,
+    setSelection,
+  ]);
 
   useEffect(() => {
     if (!onSelectionInfoChange) {

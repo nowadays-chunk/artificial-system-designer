@@ -43,6 +43,27 @@ export const MODELER_SHORTCUTS: readonly ShortcutDefinition[] = [
     scope: "shell",
   },
   {
+    id: "save-local",
+    label: "Save locally",
+    keys: "Ctrl+Shift+S",
+    ariaKeyShortcuts: "Control+Shift+S",
+    scope: "shell",
+  },
+  {
+    id: "new-diagram",
+    label: "New diagram",
+    keys: "Ctrl+Shift+N",
+    ariaKeyShortcuts: "Control+Shift+N",
+    scope: "shell",
+  },
+  {
+    id: "connect-from-selection",
+    label: "Start connection from selection",
+    keys: "Ctrl+Shift+C",
+    ariaKeyShortcuts: "Control+Shift+C",
+    scope: "shell",
+  },
+  {
     id: "step-tick",
     label: "Advance one simulation tick",
     keys: "Ctrl+Enter",
