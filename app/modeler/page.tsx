@@ -187,6 +187,12 @@ export default function ModelerPage() {
           ? "Remote save failed"
           : "Remote workspace idle";
 
+  const selectedScenario = useMemo(
+    () =>
+      systemExamples.find((scenario) => scenario.system_name === selectedScenarioName) ??
+      systemExamples[0],
+    [selectedScenarioName],
+  );
   const analysisTitle = analysisSummary?.scenarioName ?? diagramTitle;
   const analysisDescription =
     analysisSummary?.scenarioDescription ??
@@ -206,12 +212,6 @@ export default function ModelerPage() {
   const activeToolLabel = useMemo(
     () => toolOptions.find((tool) => tool.id === activeTool)?.label ?? "Select",
     [activeTool],
-  );
-  const selectedScenario = useMemo(
-    () =>
-      systemExamples.find((scenario) => scenario.system_name === selectedScenarioName) ??
-      systemExamples[0],
-    [selectedScenarioName],
   );
 
   const handleSaveLocal = useCallback(() => {
