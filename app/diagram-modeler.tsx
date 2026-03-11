@@ -18,6 +18,15 @@ import {
   validationRules,
   type Scenario,
 } from "./spec-data";
+import type { GraphDocument } from "../packages/contracts/src/graph";
+import { useGraphStore } from "./modeler/state/graph-store";
+import { useSimulationStore } from "./modeler/state/sim-store";
+import { useDiagramUiStore } from "./modeler/state/ui-store";
+import { shortcutById, shortcutsByScope } from "./modeler/a11y/shortcuts";
+import { validateArchitectureAnalysis } from "../lib/api-client/analysis";
+import { createSimulationRun, getSimulationRun } from "../lib/api-client/simulation";
+import type { ValidationFinding } from "../packages/contracts/src/analysis";
+import type { SimulationTick as ApiSimulationTick } from "../packages/contracts/src/simulation";
 
 type PaletteItem = {
   key: string;
@@ -81,6 +90,19 @@ type SimulationSnapshot = {
   edgeTraffic: Record<string, number>;
   activeEdgeIds: string[];
   events: string[];
+};
+
+type RemoteSimulationRun = {
+  runId: string;
+  status: string;
+  ticks: ApiSimulationTick[];
+  scorecard: {
+    resilience: number;
+    security: number;
+    performance: number;
+    cost: number;
+    overall: number;
+  };
 };
 
 type NodeSelection = { kind: "node"; id: string };
@@ -930,6 +952,33 @@ function evaluateValidation(
   return messages.slice(0, MAX_ALERTS);
 }
 
+function findingToValidationMessage(finding: ValidationFinding): ValidationMessage {
+  const level =
+    finding.severity === "blocker" || finding.severity === "error"
+      ? "reject"
+      : finding.severity === "warn"
+        ? "warn"
+        : "note";
+
+  return {
+    level,
+    rule: finding.ruleCode,
+    detail: finding.rationale,
+  };
+}
+
+function hashGraphSeed(graph: GraphDocument, scenarioName: string) {
+  const source = `${scenarioName}:${graph.nodes.length}:${graph.edges.length}:${graph.nodes
+    .map((node) => node.id)
+    .join("|")}:${graph.edges.map((edge) => edge.id).join("|")}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0);
+}
+
 function defaultProtocol(source: DiagramNode, target: DiagramNode) {
   const sourceProfile = getNodeProfile(source);
   const targetProfile = getNodeProfile(target);
@@ -1242,6 +1291,15 @@ function scoreTone(value: number) {
   return "text-rose-700";
 }
 
+function isEditableElement(target: EventTarget | null) {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
 function healthTone(state: SimulationNodeState | undefined) {
   if (!state || state.health === "healthy") {
     return {
@@ -1283,72 +1341,162 @@ export function DiagramModeler({
   canvasOnly = false,
   scenarioName,
   onSelectionInfoChange,
+  onGraphDocumentChange,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
   scenarioName?: string;
   onSelectionInfoChange?: (selection: DiagramSelectionInfo) => void;
+  onGraphDocumentChange?: (graph: GraphDocument) => void;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const generatedIdRef = useRef(0);
-  const [selectedScenarioName, setSelectedScenarioName] = useState(
-    systemExamples[0]?.system_name ?? "",
+  const initialScenarioName = scenarioName ?? systemExamples[0]?.system_name ?? "";
+  const initialScenario =
+    systemExamples.find((scenario) => scenario.system_name === initialScenarioName) ??
+    systemExamples[0];
+  const initialGuidedStepCount = initialScenario?.architecture_steps.length ?? 0;
+  const initialGraph = initialScenario
+    ? buildScenarioGraph(initialScenario, initialGuidedStepCount)
+    : { nodes: [], edges: [] };
+  const initialTrafficRps = initialScenario
+    ? clamp(parseCompactNumber(initialScenario.scale.peak_requests_per_second), 400, 1_400_000)
+    : 20_000;
+
+  const {
+    selectedScenarioName,
+    setSelectedScenarioName,
+    guidedStepCount,
+    setGuidedStepCount,
+    paletteQuery,
+    setPaletteQuery,
+    draftPurpose,
+    setDraftPurpose,
+    draftProtocol,
+    setDraftProtocol,
+  } = useDiagramUiStore(initialScenarioName, initialGuidedStepCount);
+
+  const {
+    nodes,
+    edges,
+    selection,
+    setSelection,
+    pendingConnectionSourceId,
+    setPendingConnectionSourceId,
+    dragState,
+    setDragState,
+    updateNode,
+    addNode,
+    removeNode,
+    addEdge,
+    removeEdge,
+    updateEdge,
+    replaceGraph,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useGraphStore<DiagramNode, DiagramEdge, Selection, DragState>(
+    initialGraph.nodes,
+    initialGraph.edges,
+    null,
   );
+
+  const {
+    trafficRps,
+    setTrafficRps,
+    isRunning,
+    setIsRunning,
+    tick,
+    setTick,
+    resetTick,
+  } = useSimulationStore(initialTrafficRps);
+
   const selectedScenario = useMemo(
     () =>
       systemExamples.find((scenario) => scenario.system_name === selectedScenarioName) ??
       systemExamples[0],
     [selectedScenarioName],
   );
-  const [guidedStepCount, setGuidedStepCount] = useState(
-    selectedScenario?.architecture_steps.length ?? 0,
-  );
-  const [nodes, setNodes] = useState<DiagramNode[]>(() =>
-    selectedScenario
-      ? buildScenarioGraph(selectedScenario, selectedScenario.architecture_steps.length).nodes
-      : [],
-  );
-  const [edges, setEdges] = useState<DiagramEdge[]>(() =>
-    selectedScenario
-      ? buildScenarioGraph(selectedScenario, selectedScenario.architecture_steps.length).edges
-      : [],
-  );
-  const [selection, setSelection] = useState<Selection>(null);
-  const [pendingConnectionSourceId, setPendingConnectionSourceId] = useState<string | null>(null);
-  const [draftPurpose, setDraftPurpose] = useState("Primary request flow");
-  const [draftProtocol, setDraftProtocol] = useState<(typeof PROTOCOL_OPTIONS)[number]>("HTTPS");
-  const [trafficRps, setTrafficRps] = useState(
-    selectedScenario
-      ? clamp(parseCompactNumber(selectedScenario.scale.peak_requests_per_second), 400, 1_400_000)
-      : 20_000,
-  );
-  const [isRunning, setIsRunning] = useState(true);
-  const [tick, setTick] = useState(1);
-  const [paletteQuery, setPaletteQuery] = useState("");
-  const [dragState, setDragState] = useState<DragState | null>(null);
   const deferredPaletteQuery = useDeferredValue(paletteQuery);
+  const canvasShortcuts = shortcutsByScope("canvas");
+  const stepTickShortcut = shortcutById("step-tick");
+  const toggleRunShortcut = shortcutById("toggle-run");
+  const autoLayoutShortcut = shortcutById("auto-layout");
+  const clearSelectionShortcut = shortcutById("clear-selection");
+  const deleteShortcut = shortcutById("delete-element");
+  const [remoteValidationMessages, setRemoteValidationMessages] = useState<ValidationMessage[] | null>(
+    null,
+  );
+  const [remoteSimulationRun, setRemoteSimulationRun] = useState<RemoteSimulationRun | null>(null);
 
-  useEffect(() => {
-    if (!isRunning) {
-      return;
-    }
+  const graphDocument = useMemo<GraphDocument>(
+    () => ({
+      schemaVersion: "1.0",
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        label: node.label,
+        category: node.category,
+        focus: node.focus,
+        provider: node.provider,
+        region: node.region,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        settings: node.settings,
+      })),
+      edges: edges.map((edge) => ({
+        id: edge.id,
+        sourceId: edge.sourceId,
+        targetId: edge.targetId,
+        protocol: edge.protocol,
+        purpose: edge.purpose,
+      })),
+      metadata: {
+        name: selectedScenarioName,
+      },
+    }),
+    [edges, nodes, selectedScenarioName],
+  );
 
-    const interval = window.setInterval(() => {
-      setTick((current) => current + 1);
-    }, 1100);
-
-    return () => window.clearInterval(interval);
-  }, [isRunning]);
-
-  const validationMessages = useMemo(
+  const localValidationMessages = useMemo(
     () => evaluateValidation(nodes, edges, selectedScenario),
     [edges, nodes, selectedScenario],
   );
-  const simulation = useMemo(
+  const validationMessages = remoteValidationMessages ?? localValidationMessages;
+  const localSimulation = useMemo(
     () => simulateTopology(nodes, edges, trafficRps, tick, validationMessages),
     [edges, nodes, tick, trafficRps, validationMessages],
   );
+  const simulation = useMemo(() => {
+    if (!remoteSimulationRun || remoteSimulationRun.ticks.length === 0) {
+      return localSimulation;
+    }
+
+    const normalizedTickIndex = (Math.max(1, tick) - 1) % remoteSimulationRun.ticks.length;
+    const remoteTick = remoteSimulationRun.ticks[normalizedTickIndex];
+    if (!remoteTick) {
+      return localSimulation;
+    }
+
+    return {
+      ...localSimulation,
+      tick,
+      demand: remoteTick.metrics.throughputRps,
+      avgLatency: remoteTick.metrics.latencyMsP50,
+      throughput: remoteTick.metrics.throughputRps,
+      resilience: remoteSimulationRun.scorecard.resilience,
+      security: remoteSimulationRun.scorecard.security,
+      performance: remoteSimulationRun.scorecard.performance,
+      costEfficiency: remoteSimulationRun.scorecard.cost,
+      overallScore: remoteSimulationRun.scorecard.overall,
+      estimatedCost: remoteTick.metrics.estimatedCostPerHourUsd,
+      events: remoteTick.events.slice(0, MAX_ALERTS),
+    };
+  }, [localSimulation, remoteSimulationRun, tick]);
   const concepts = useMemo(
     () => deriveConcepts(nodes, edges, selectedScenario),
     [edges, nodes, selectedScenario],
@@ -1381,12 +1529,6 @@ export function DiagramModeler({
     )
     .slice(0, 5);
 
-  const updateNode = (nodeId: string, updater: (node: DiagramNode) => DiagramNode) => {
-    setNodes((current) =>
-      current.map((node) => (node.id === nodeId ? updater(node) : node)),
-    );
-  };
-
   const nextGeneratedId = (prefix: string) => {
     generatedIdRef.current += 1;
     return `${prefix}-${generatedIdRef.current}`;
@@ -1405,13 +1547,76 @@ export function DiagramModeler({
     setTrafficRps(clamp(parseCompactNumber(scenario.scale.peak_requests_per_second), 400, 1_400_000));
     startTransition(() => {
       const nextGraph = buildScenarioGraph(scenario, stepCount);
-      setNodes(nextGraph.nodes);
-      setEdges(nextGraph.edges);
-      setSelection(null);
-      setPendingConnectionSourceId(null);
-      setTick(1);
+      replaceGraph(nextGraph.nodes, nextGraph.edges, null);
+      resetTick();
     });
   };
+
+  useEffect(() => {
+    let active = true;
+
+    const runAnalysis = async () => {
+      try {
+        const report = await validateArchitectureAnalysis({
+          graph: graphDocument,
+          scenarioId: selectedScenarioName || undefined,
+        });
+        if (!active) {
+          return;
+        }
+        setRemoteValidationMessages(report.findings.map(findingToValidationMessage).slice(0, MAX_ALERTS));
+      } catch {
+        if (!active) {
+          return;
+        }
+        setRemoteValidationMessages(null);
+      }
+    };
+
+    void runAnalysis();
+    return () => {
+      active = false;
+    };
+  }, [graphDocument, selectedScenarioName]);
+
+  useEffect(() => {
+    let active = true;
+
+    const runRemoteSimulation = async () => {
+      try {
+        const seed = hashGraphSeed(graphDocument, selectedScenarioName);
+        const created = await createSimulationRun({
+          workspaceId: "local-workspace",
+          versionId: "live-graph",
+          scenarioId: selectedScenarioName || "custom",
+          seed,
+          profile: "normal",
+          graph: graphDocument,
+          trafficRps,
+        });
+        const run = await getSimulationRun(created.runId);
+        if (!active) {
+          return;
+        }
+        setRemoteSimulationRun({
+          runId: run.runId,
+          status: run.status,
+          ticks: run.ticks,
+          scorecard: run.scorecard,
+        });
+      } catch {
+        if (!active) {
+          return;
+        }
+        setRemoteSimulationRun(null);
+      }
+    };
+
+    void runRemoteSimulation();
+    return () => {
+      active = false;
+    };
+  }, [graphDocument, selectedScenarioName, trafficRps]);
 
   const loadScenarioSteps = (stepCount: number) => {
     if (!selectedScenario) {
@@ -1422,11 +1627,8 @@ export function DiagramModeler({
     setGuidedStepCount(safeStepCount);
     startTransition(() => {
       const nextGraph = buildScenarioGraph(selectedScenario, safeStepCount);
-      setNodes(nextGraph.nodes);
-      setEdges(nextGraph.edges);
-      setSelection(null);
-      setPendingConnectionSourceId(null);
-      setTick(1);
+      replaceGraph(nextGraph.nodes, nextGraph.edges, null);
+      resetTick();
     });
   };
 
@@ -1474,28 +1676,68 @@ export function DiagramModeler({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement ||
-        event.target instanceof HTMLSelectElement
-      ) {
+      if (isEditableElement(event.target)) {
         return;
       }
 
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selection?.kind === "node") {
-          setNodes((current) => current.filter((node) => node.id !== selection.id));
-          setEdges((current) => current.filter((edge) => edge.sourceId !== selection.id && edge.targetId !== selection.id));
+          removeNode(selection.id);
           setSelection(null);
         } else if (selection?.kind === "edge") {
-          setEdges((current) => current.filter((edge) => edge.id !== selection.id));
+          removeEdge(selection.id);
           setSelection(null);
         }
       }
 
       if ((event.ctrlKey || event.metaKey) && event.key === "z") {
-        // Simple undo implementation would go here (optional for now but good to have)
-        console.log("Undo shortcut triggered");
+        event.preventDefault();
+        if (event.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        redo();
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        setTick((current) => current + 1);
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        replaceGraph(autoLayout(nodes), edges, selection);
+        setTick((current) => current + 1);
+      }
+
+      if (event.key === " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        setIsRunning((current) => !current);
+      }
+
+      if (selection?.kind === "node" && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        event.preventDefault();
+        const delta = event.shiftKey ? 25 : 10;
+        updateNode(selection.id, (node) => ({
+          ...node,
+          x:
+            event.key === "ArrowLeft"
+              ? clamp(node.x - delta, 24, CANVAS_WIDTH - NODE_WIDTH - 24)
+              : event.key === "ArrowRight"
+                ? clamp(node.x + delta, 24, CANVAS_WIDTH - NODE_WIDTH - 24)
+                : node.x,
+          y:
+            event.key === "ArrowUp"
+              ? clamp(node.y - delta, 24, CANVAS_HEIGHT - NODE_HEIGHT - 24)
+              : event.key === "ArrowDown"
+                ? clamp(node.y + delta, 24, CANVAS_HEIGHT - NODE_HEIGHT - 24)
+                : node.y,
+        }));
       }
 
       if (event.key === "Escape") {
@@ -1506,7 +1748,21 @@ export function DiagramModeler({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selection]);
+  }, [
+    redo,
+    replaceGraph,
+    edges,
+    nodes,
+    removeEdge,
+    removeNode,
+    selection,
+    setIsRunning,
+    setPendingConnectionSourceId,
+    setSelection,
+    setTick,
+    undo,
+    updateNode,
+  ]);
 
 
   const handleNodePointerDown = (
@@ -1565,7 +1821,7 @@ export function DiagramModeler({
       purpose: draftPurpose.trim() || "Primary request flow",
     };
 
-    setEdges((current) => [...current, newEdge]);
+    addEdge(newEdge);
     setPendingConnectionSourceId(null);
     setSelection({ kind: "edge", id: newEdge.id });
   };
@@ -1596,7 +1852,7 @@ export function DiagramModeler({
       provider: cloudProviders[0]?.name,
     });
 
-    setNodes((current) => [...current, node]);
+    addNode(node);
     setSelection({ kind: "node", id });
   };
 
@@ -1615,7 +1871,7 @@ export function DiagramModeler({
       return;
     }
     applyScenarioSelection(scenarioName);
-  }, [scenarioName, selectedScenarioName]);
+  }, [applyScenarioSelection, scenarioName, selectedScenarioName]);
 
   useEffect(() => {
     if (!onSelectionInfoChange) {
@@ -1648,6 +1904,14 @@ export function DiagramModeler({
 
     onSelectionInfoChange(null);
   }, [selectedNode, selectedEdge, onSelectionInfoChange]);
+
+  useEffect(() => {
+    if (!onGraphDocumentChange) {
+      return;
+    }
+
+    onGraphDocumentChange(graphDocument);
+  }, [graphDocument, onGraphDocumentChange]);
 
   return (
     <div className={`${headless ? "flex flex-col h-full w-full" : "grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]"}`}>
@@ -1873,13 +2137,31 @@ export function DiagramModeler({
               <button
                 type="button"
                 onClick={() => setTick((current) => current + 1)}
+                aria-keyshortcuts={stepTickShortcut?.ariaKeyShortcuts}
                 className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
               >
                 Step tick
               </button>
               <button
                 type="button"
+                onClick={undo}
+                disabled={!canUndo}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50 hover:border-cyan-300"
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={redo}
+                disabled={!canRedo}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50 hover:border-cyan-300"
+              >
+                Redo
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsRunning((current) => !current)}
+                aria-keyshortcuts={toggleRunShortcut?.ariaKeyShortcuts}
                 className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
               >
                 {isRunning ? "Pause simulation" : "Run simulation"}
@@ -1887,9 +2169,10 @@ export function DiagramModeler({
               <button
                 type="button"
                 onClick={() => {
-                  setNodes((current) => autoLayout(current));
+                  replaceGraph(autoLayout(nodes), edges, selection);
                   setTick((current) => current + 1);
                 }}
+                aria-keyshortcuts={autoLayoutShortcut?.ariaKeyShortcuts}
                 className="rounded-full border border-slate-200 bg-panel border-line shadow-lg"
               >
                 Auto-layout
@@ -1897,10 +2180,7 @@ export function DiagramModeler({
               <button
                 type="button"
                 onClick={() => {
-                  setNodes([]);
-                  setEdges([]);
-                  setSelection(null);
-                  setPendingConnectionSourceId(null);
+                  replaceGraph([], [], null);
                   setGuidedStepCount(0);
                 }}
                 className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
@@ -1977,6 +2257,7 @@ export function DiagramModeler({
                 <button
                   type="button"
                   onClick={() => setPendingConnectionSourceId(null)}
+                  aria-keyshortcuts={clearSelectionShortcut?.ariaKeyShortcuts}
                   className="rounded-2xl border border-cyan-200 bg-white px-4 py-3 text-sm text-cyan-900 transition hover:border-cyan-300"
                 >
                   Cancel link
@@ -1990,10 +2271,17 @@ export function DiagramModeler({
               ref={canvasRef}
               className="network-grid relative overflow-hidden rounded-[1.35rem]"
               style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+              role="region"
+              tabIndex={0}
+              aria-label="Architecture canvas"
+              aria-describedby="modeler-canvas-shortcuts"
               onDragOver={(event) => event.preventDefault()}
               onDrop={handleCanvasDrop}
               onClick={handleCanvasClick}
             >
+              <p id="modeler-canvas-shortcuts" className="sr-only">
+                Canvas shortcuts: {canvasShortcuts.map((shortcut) => `${shortcut.label}: ${shortcut.keys}`).join(", ")}.
+              </p>
               <svg
                 className="absolute inset-0 h-full w-full"
                 width={CANVAS_WIDTH}
@@ -2053,6 +2341,16 @@ export function DiagramModeler({
                         fill="none"
                         stroke="transparent"
                         strokeWidth={18}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Select connection ${edge.protocol} from ${source.label} to ${target.label}`}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setSelection({ kind: "edge", id: edge.id });
+                          }
+                        }}
                         onClick={(event) => {
                           event.stopPropagation();
                           setSelection({ kind: "edge", id: edge.id });
@@ -2117,6 +2415,9 @@ export function DiagramModeler({
                       event.stopPropagation();
                       handleNodeClick(node.id, event.shiftKey);
                     }}
+                    aria-pressed={isSelected}
+                    aria-keyshortcuts={deleteShortcut?.ariaKeyShortcuts}
+                    aria-label={`Node ${node.label}. ${state?.health ?? "idle"} health. ${state ? `${formatNumber(state.requests)} requests per second.` : "No traffic."}`}
                     className="absolute overflow-hidden rounded-[1.35rem] border px-4 py-3 text-left text-white transition duration-150 hover:-translate-y-0.5"
                     style={cardStyle}
                   >
@@ -2319,8 +2620,9 @@ export function DiagramModeler({
             </h3>
 
             <div className="mt-4 space-y-3">
-              {validationMessages.map((message) => (
-                <div
+              <ul aria-live="polite" className="space-y-3">
+                {validationMessages.map((message) => (
+                  <li
                   key={`${message.rule}-${message.detail}`}
                   className="rounded-[1.35rem] border px-4 py-4"
                   style={{
@@ -2339,8 +2641,9 @@ export function DiagramModeler({
                   </p>
                   <p className="mt-2 text-sm font-medium leading-6 text-slate-900">{message.rule}</p>
                   <p className="mt-2 text-sm leading-6 text-slate-700">{message.detail}</p>
-                </div>
-              ))}
+                  </li>
+                ))}
+              </ul>
               {validationMessages.length === 0 ? (
                 <div className="rounded-[1.35rem] border border-emerald-200 bg-emerald-50/90 px-4 py-4">
                   <p className="text-sm font-medium text-emerald-900">
@@ -2354,7 +2657,7 @@ export function DiagramModeler({
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
                 Simulation Events
               </p>
-              <ul className="mt-3 space-y-3">
+              <ul aria-live="polite" className="mt-3 space-y-3">
                 {simulation.events.map((eventText) => (
                   <li
                     key={eventText}
@@ -2533,16 +2836,7 @@ export function DiagramModeler({
                     <button
                       type="button"
                       onClick={() => {
-                        setNodes((current) =>
-                          current.filter((node) => node.id !== selectedNode.id),
-                        );
-                        setEdges((current) =>
-                          current.filter(
-                            (edge) =>
-                              edge.sourceId !== selectedNode.id &&
-                              edge.targetId !== selectedNode.id,
-                          ),
-                        );
+                        removeNode(selectedNode.id);
                         setSelection(null);
                       }}
                       className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"
@@ -2561,13 +2855,10 @@ export function DiagramModeler({
                   <select
                     value={selectedEdge.protocol}
                     onChange={(event) =>
-                      setEdges((current) =>
-                        current.map((edge) =>
-                          edge.id === selectedEdge.id
-                            ? { ...edge, protocol: event.target.value }
-                            : edge,
-                        ),
-                      )
+                      updateEdge(selectedEdge.id, (edge) => ({
+                        ...edge,
+                        protocol: event.target.value,
+                      }))
                     }
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
                   >
@@ -2585,13 +2876,10 @@ export function DiagramModeler({
                   <input
                     value={selectedEdge.purpose}
                     onChange={(event) =>
-                      setEdges((current) =>
-                        current.map((edge) =>
-                          edge.id === selectedEdge.id
-                            ? { ...edge, purpose: event.target.value }
-                            : edge,
-                        ),
-                      )
+                      updateEdge(selectedEdge.id, (edge) => ({
+                        ...edge,
+                        purpose: event.target.value,
+                      }))
                     }
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-400"
                   />
@@ -2599,7 +2887,7 @@ export function DiagramModeler({
                 <button
                   type="button"
                   onClick={() => {
-                    setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id));
+                    removeEdge(selectedEdge.id);
                     setSelection(null);
                   }}
                   className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-rose-300 hover:text-rose-700"

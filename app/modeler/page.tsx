@@ -18,8 +18,12 @@ import {
 import { DiagramModeler, type DiagramSelectionInfo } from "../diagram-modeler";
 import { systemExamples, toolbarCategories } from "../spec-data";
 import { useTheme } from "../components/ThemeProvider";
+import { useModelerShellUiStore, type ModelerTool } from "./state/ui-store";
+import { createDiagramVersion, createWorkspace } from "../../lib/api-client/workspaces";
+import type { GraphDocument } from "../../packages/contracts/src/graph";
+import { shortcutById, shortcutsByScope } from "./a11y/shortcuts";
 
-const toolOptions = [
+const toolOptions: { id: ModelerTool; label: string; icon: typeof MousePointer2; shortcut: string }[] = [
   { id: "select", label: "Select", icon: MousePointer2, shortcut: "V" },
   { id: "add", label: "Add Node", icon: Plus, shortcut: "N" },
   { id: "layout", label: "Auto Layout", icon: Layout, shortcut: "L" },
@@ -44,17 +48,29 @@ function toCanonicalType(value: string) {
 
 export default function ModelerPage() {
   const { theme, toggleTheme } = useTheme();
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
-  const [activeTool, setActiveTool] = useState("select");
-  const [announcement, setAnnouncement] = useState("Modeler ready");
-  const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showAnalysis, setShowAnalysis] = useState(false);
-  const [paletteQuery, setPaletteQuery] = useState("");
-  const [selectedScenarioName, setSelectedScenarioName] = useState(
-    systemExamples[0]?.system_name ?? "",
-  );
-  const [selectedElementInfo, setSelectedElementInfo] = useState<DiagramSelectionInfo>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [latestGraph, setLatestGraph] = useState<GraphDocument | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const {
+    leftSidebarOpen,
+    setLeftSidebarOpen,
+    rightSidebarOpen,
+    setRightSidebarOpen,
+    activeTool,
+    setActiveTool,
+    announcement,
+    setAnnouncement,
+    showShortcuts,
+    setShowShortcuts,
+    showAnalysis,
+    setShowAnalysis,
+    paletteQuery,
+    setPaletteQuery,
+    selectedScenarioName,
+    setSelectedScenarioName,
+    selectedElementInfo,
+    setSelectedElementInfo,
+  } = useModelerShellUiStore<DiagramSelectionInfo>(systemExamples[0]?.system_name ?? "", null);
 
   const activeToolLabel = useMemo(
     () => toolOptions.find((tool) => tool.id === activeTool)?.label ?? "Select",
@@ -88,10 +104,16 @@ export default function ModelerPage() {
       `${item.name} ${item.category} ${item.focus}`.toLowerCase().includes(query),
     );
   }, [paletteItems, paletteQuery]);
+  const shellShortcuts = shortcutsByScope("shell");
+  const leftSidebarShortcut = shortcutById("toggle-left-sidebar");
+  const rightSidebarShortcut = shortcutById("toggle-right-sidebar");
+  const shortcutsShortcut = shortcutById("toggle-shortcuts");
+  const openAnalysisShortcut = shortcutById("open-analysis");
+  const saveVersionShortcut = shortcutById("save-version");
 
   useEffect(() => {
     setAnnouncement(`Tool set to ${activeToolLabel}`);
-  }, [activeToolLabel]);
+  }, [activeToolLabel, setAnnouncement]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -126,11 +148,86 @@ export default function ModelerPage() {
       if (event.key === "?") {
         setShowShortcuts((value) => !value);
       }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        setShowAnalysis(true);
+        setAnnouncement("Opened analysis panel");
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!workspaceId || !latestGraph) {
+          setSaveStatus("error");
+          return;
+        }
+        setSaveStatus("saving");
+        void createDiagramVersion({
+          workspaceId,
+          graph: latestGraph,
+          message: `Saved from modeler (${new Date().toISOString()})`,
+        })
+          .then(() => setSaveStatus("saved"))
+          .catch(() => setSaveStatus("error"));
+      }
+
+      if (event.key === "Escape") {
+        setShowShortcuts(false);
+        setShowAnalysis(false);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    setActiveTool,
+    setAnnouncement,
+    latestGraph,
+    setLeftSidebarOpen,
+    setRightSidebarOpen,
+    setShowAnalysis,
+    setShowShortcuts,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    let active = true;
+    const bootstrapWorkspace = async () => {
+      try {
+        const created = await createWorkspace("Default Workspace");
+        if (active) {
+          setWorkspaceId(created.workspaceId);
+        }
+      } catch {
+        if (active) {
+          setWorkspaceId(null);
+        }
+      }
+    };
+    bootstrapWorkspace();
+    return () => {
+      active = false;
+    };
   }, []);
+
+  const handleSaveVersion = async () => {
+    if (!workspaceId || !latestGraph) {
+      setSaveStatus("error");
+      return;
+    }
+
+    setSaveStatus("saving");
+    try {
+      await createDiagramVersion({
+        workspaceId,
+        graph: latestGraph,
+        message: `Saved from modeler (${new Date().toISOString()})`,
+      });
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("error");
+    }
+  };
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -162,7 +259,7 @@ export default function ModelerPage() {
             onClick={() => setLeftSidebarOpen((value) => !value)}
             className="rounded-lg border border-line p-2 transition hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="Toggle left sidebar"
-            aria-keyshortcuts="Control+B"
+            aria-keyshortcuts={leftSidebarShortcut?.ariaKeyShortcuts}
           >
             <PanelLeft size={18} />
           </button>
@@ -170,7 +267,7 @@ export default function ModelerPage() {
             onClick={() => setRightSidebarOpen((value) => !value)}
             className="rounded-lg border border-line p-2 transition hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="Toggle right sidebar"
-            aria-keyshortcuts="Control+I"
+            aria-keyshortcuts={rightSidebarShortcut?.ariaKeyShortcuts}
           >
             <PanelRight size={18} />
           </button>
@@ -179,7 +276,7 @@ export default function ModelerPage() {
             className="hidden rounded-lg border border-line px-3 py-1.5 text-xs font-semibold transition hover:border-cyan-500/40 md:inline-flex"
             aria-label="Toggle keyboard shortcuts"
             aria-pressed={showShortcuts}
-            aria-keyshortcuts="?"
+            aria-keyshortcuts={shortcutsShortcut?.ariaKeyShortcuts}
           >
             <Command size={14} className="mr-2" />
             Shortcuts
@@ -203,8 +300,23 @@ export default function ModelerPage() {
           <button
             onClick={() => setShowAnalysis(true)}
             className="rounded-lg border border-line px-4 py-2 text-sm font-semibold transition hover:border-cyan-500/40"
+            aria-keyshortcuts={openAnalysisShortcut?.ariaKeyShortcuts}
           >
             Analysis
+          </button>
+          <button
+            onClick={handleSaveVersion}
+            className="rounded-lg border border-line px-4 py-2 text-sm font-semibold transition hover:border-cyan-500/40"
+            aria-live="polite"
+            aria-keyshortcuts={saveVersionShortcut?.ariaKeyShortcuts}
+          >
+            {saveStatus === "saving"
+              ? "Saving..."
+              : saveStatus === "saved"
+                ? "Saved"
+                : saveStatus === "error"
+                  ? "Save Failed"
+                  : "Save Version"}
           </button>
         </div>
       </header>
@@ -220,7 +332,7 @@ export default function ModelerPage() {
               onClick={() => setLeftSidebarOpen((value) => !value)}
               className="rounded-md p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
               aria-label="Toggle left sidebar"
-              aria-keyshortcuts="Control+B"
+              aria-keyshortcuts={leftSidebarShortcut?.ariaKeyShortcuts}
             >
               <PanelLeft size={16} />
             </button>
@@ -313,6 +425,7 @@ export default function ModelerPage() {
             canvasOnly
             scenarioName={selectedScenarioName}
             onSelectionInfoChange={setSelectedElementInfo}
+            onGraphDocumentChange={setLatestGraph}
           />
         </main>
 
@@ -326,7 +439,7 @@ export default function ModelerPage() {
               onClick={() => setRightSidebarOpen((value) => !value)}
               className="rounded-md p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
               aria-label="Toggle right sidebar"
-              aria-keyshortcuts="Control+I"
+              aria-keyshortcuts={rightSidebarShortcut?.ariaKeyShortcuts}
             >
               <PanelRight size={16} />
             </button>
@@ -399,7 +512,7 @@ export default function ModelerPage() {
           <span className="hidden sm:inline">Active tool: {activeToolLabel}</span>
         </div>
         <div className="hidden items-center gap-4 md:flex">
-          <span>Shortcuts: V, N, L, Ctrl+B, Ctrl+I, Shift+Click connect</span>
+          <span>Shortcuts: V, N, L, Ctrl+B, Ctrl+I, Ctrl+S, Ctrl+Shift+A</span>
           <span>Presets: {systemExamples.length}</span>
         </div>
         <span className="sr-only" role="status" aria-live="polite">
@@ -409,7 +522,12 @@ export default function ModelerPage() {
 
       {showShortcuts ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6 backdrop-blur">
-          <div className="w-full max-w-md rounded-3xl border border-line bg-background p-6 shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Keyboard shortcuts"
+            className="w-full max-w-md rounded-3xl border border-line bg-background p-6 shadow-2xl"
+          >
             <div className="flex items-center justify-between">
               <p className="text-lg font-semibold">Keyboard shortcuts</p>
               <button
@@ -420,18 +538,17 @@ export default function ModelerPage() {
               </button>
             </div>
             <div className="mt-4 grid gap-3 text-sm text-slate-600 dark:text-slate-300">
-              <div className="flex items-center justify-between rounded-2xl border border-line px-3 py-2">
-                <span>Toggle left sidebar</span>
-                <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">Ctrl+B</kbd>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-line px-3 py-2">
-                <span>Toggle right sidebar</span>
-                <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">Ctrl+I</kbd>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-line px-3 py-2">
-                <span>Start connection from node</span>
-                <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">Shift+Click</kbd>
-              </div>
+              {shellShortcuts.map((shortcut) => (
+                <div
+                  key={shortcut.id}
+                  className="flex items-center justify-between rounded-2xl border border-line px-3 py-2"
+                >
+                  <span>{shortcut.label}</span>
+                  <kbd className="rounded-md border border-line px-2 py-1 text-[0.65rem]">
+                    {shortcut.keys}
+                  </kbd>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -439,7 +556,12 @@ export default function ModelerPage() {
 
       {showAnalysis ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-6 backdrop-blur">
-          <div className="h-[min(84vh,760px)] w-full max-w-5xl overflow-y-auto rounded-3xl border border-line bg-background p-7 shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Final summary analysis"
+            className="h-[min(84vh,760px)] w-full max-w-5xl overflow-y-auto rounded-3xl border border-line bg-background p-7 shadow-2xl"
+          >
             <div className="flex items-start justify-between gap-6">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-700">Final Summary Analysis</p>

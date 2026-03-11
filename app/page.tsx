@@ -134,21 +134,39 @@ export default function LandingPage() {
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-linear-to-br from-cyan-500 to-blue-600 text-white shadow-lg">
-              <svg
-                className="h-6 w-6"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 7h6l2-3h8v6l-2 3h-7l-2 3H4z"
-                />
-              </svg>
-            </span>
+            <svg   
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 256 256"
+              width="60"
+              height="60"
+              fill="none"
+              role="img"
+              aria-label="Artificial system designer icon">
+              <rect x="20" y="20" width="216" height="216" rx="32" fill="#F8FAFC"/>
+
+              <rect x="52" y="56" width="152" height="68" rx="18" fill="#E2E8F0"/>
+              <rect x="68" y="72" width="24" height="24" rx="8" fill="#06B6D4"/>
+              <rect x="100" y="72" width="24" height="24" rx="8" fill="#67E8F9"/>
+              <rect x="132" y="72" width="24" height="24" rx="8" fill="#22C55E"/>
+              <rect x="164" y="72" width="24" height="24" rx="8" fill="#A78BFA"/>
+
+              <path d="M80 96v18M112 96v18M144 96v18M176 96v18" stroke="#94A3B8" stroke-width="8" stroke-linecap="round"/>
+
+              <rect x="64" y="136" width="128" height="56" rx="20" fill="#0F172A"/>
+
+              <path d="M88 154h40M88 170h24M136 170h32" stroke="#CBD5E1" stroke-width="8" stroke-linecap="round"/>
+
+              <g transform="translate(0 0)">
+                <rect x="144" y="148" width="44" height="14" rx="7" transform="rotate(-35 144 148)" fill="#22D3EE"/>
+                <path d="M183.5 128.5l10 10-10.5 4.5-4-4z" fill="#F8FAFC"/>
+                <path d="M140.5 158.5l7 7-12 5z" fill="#38BDF8"/>
+              </g>
+
+              <circle cx="80" cy="210" r="8" fill="#06B6D4"/>
+              <circle cx="128" cy="210" r="8" fill="#22C55E"/>
+              <circle cx="176" cy="210" r="8" fill="#A78BFA"/>
+              <path d="M88 210h32M136 210h32" stroke="#94A3B8" stroke-width="8" stroke-linecap="round"/>
+            </svg>
             <div>
               <p className="text-lg font-semibold tracking-tight">Artificial System Designer</p>
               <p className="text-xs uppercase tracking-[0.28em] text-cyan-500">SaaS Studio</p>
