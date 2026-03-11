@@ -60,13 +60,13 @@ type DiagramEdge = {
   purpose: string;
 };
 
-type ValidationMessage = {
+export type ValidationMessage = {
   level: "warn" | "reject" | "note";
   rule: string;
   detail: string;
 };
 
-type SimulationNodeState = {
+export type SimulationNodeState = {
   requests: number;
   latency: number;
   cpu: number;
@@ -75,7 +75,7 @@ type SimulationNodeState = {
   health: "healthy" | "strained" | "critical";
 };
 
-type SimulationSnapshot = {
+export type SimulationSnapshot = {
   tick: number;
   demand: number;
   avgLatency: number;
@@ -157,6 +157,15 @@ export type DiagramSelectionInfo =
     purpose: string;
   }
   | null;
+
+export type DiagramAnalysisSummary = {
+  validationMessages: ValidationMessage[];
+  simulationSnapshot: SimulationSnapshot;
+  scenarioName: string;
+  scenarioDescription?: string;
+  trafficRps: number;
+  timestamp: string;
+};
 
 const CANVAS_WIDTH = 1760;
 const CANVAS_HEIGHT = 1080;
@@ -1350,6 +1359,8 @@ export function DiagramModeler({
   resetSignal,
   pendingConnectionFrom,
   onPendingConnectionConsumed,
+  onAnalysisSummaryUpdate,
+  scenarioRefreshSignal,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1363,12 +1374,15 @@ export function DiagramModeler({
   resetSignal?: number | null;
   pendingConnectionFrom?: string | null;
   onPendingConnectionConsumed?: () => void;
+  onAnalysisSummaryUpdate?: (summary: DiagramAnalysisSummary) => void;
+  scenarioRefreshSignal?: number | null;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const generatedIdRef = useRef(0);
   const resetSignalRef = useRef<number | null>(null);
   const pendingConnectionRef = useRef<string | null>(null);
+  const scenarioRefreshRef = useRef<number | null>(null);
   const initialScenarioName = scenarioName ?? systemExamples[0]?.system_name ?? "";
   const initialScenario =
     systemExamples.find((scenario) => scenario.system_name === initialScenarioName) ??
@@ -1535,6 +1549,37 @@ export function DiagramModeler({
       events: remoteTick.events.slice(0, MAX_ALERTS),
     };
   }, [localSimulation, remoteSimulationRun, tick]);
+
+  const analysisPayload = useMemo(() => {
+    return {
+      validationMessages,
+      simulationSnapshot: simulation,
+      scenarioName:
+        diagramMetadataName ??
+        selectedScenario?.system_name ??
+        "Custom architecture",
+      scenarioDescription:
+        diagramMetadataDescription ?? selectedScenario?.description ?? undefined,
+      trafficRps,
+    };
+  }, [
+    diagramMetadataDescription,
+    diagramMetadataName,
+    selectedScenario,
+    simulation,
+    trafficRps,
+    validationMessages,
+  ]);
+
+  useEffect(() => {
+    if (!onAnalysisSummaryUpdate) {
+      return;
+    }
+    onAnalysisSummaryUpdate({
+      ...analysisPayload,
+      timestamp: new Date().toISOString(),
+    });
+  }, [analysisPayload, onAnalysisSummaryUpdate]);
   const concepts = useMemo(
     () => deriveConcepts(nodes, edges, selectedScenario),
     [edges, nodes, selectedScenario],
@@ -1911,6 +1956,14 @@ export function DiagramModeler({
     }
     applyScenarioSelection(scenarioName);
   }, [applyScenarioSelection, scenarioName, selectedScenarioName]);
+
+  useEffect(() => {
+    if (scenarioRefreshSignal == null || scenarioRefreshRef.current === scenarioRefreshSignal) {
+      return;
+    }
+    scenarioRefreshRef.current = scenarioRefreshSignal;
+    applyScenarioSelection(selectedScenarioName);
+  }, [applyScenarioSelection, scenarioRefreshSignal, selectedScenarioName]);
 
   useEffect(() => {
     if (resetSignal == null || resetSignalRef.current === resetSignal) {

@@ -15,13 +15,24 @@ import {
   Sparkles,
   Sun,
 } from "lucide-react";
-import { DiagramModeler, type DiagramSelectionInfo } from "../diagram-modeler";
+import {
+  DiagramModeler,
+  type DiagramAnalysisSummary,
+  type DiagramSelectionInfo,
+} from "../diagram-modeler";
 import { cloudProviders, systemExamples, toolbarCategories } from "../spec-data";
 import { useTheme } from "../components/ThemeProvider";
 import { useModelerShellUiStore, type ModelerTool } from "./state/ui-store";
 import { createDiagramVersion, createWorkspace } from "../../lib/api-client/workspaces";
 import type { GraphDocument, GraphEnvironmentProfile } from "../../packages/contracts/src/graph";
 import { shortcutById, shortcutsByScope } from "./a11y/shortcuts";
+
+const numberFormatter = new Intl.NumberFormat("en-US");
+const formatPercent = (value?: number) => (value == null ? "—" : `${Math.round(value)}%`);
+const formatRequests = (value?: number) => (value == null ? "—" : `${numberFormatter.format(value)} req/s`);
+const formatLatency = (value?: number) => (value == null ? "—" : `${Math.round(value)} ms`);
+const formatCost = (value?: number) =>
+  value == null ? "—" : `$${value.toFixed(2)} / hr`;
 
 const toolOptions: { id: ModelerTool; label: string; icon: typeof MousePointer2; shortcut: string }[] = [
   { id: "select", label: "Select", icon: MousePointer2, shortcut: "V" },
@@ -95,6 +106,8 @@ export default function ModelerPage() {
   const [localSaves, setLocalSaves] = useState<LocalSaveEntry[]>([]);
   const [connectionStarterNodeId, setConnectionStarterNodeId] = useState<string | null>(null);
   const [newDiagramSignal, setNewDiagramSignal] = useState<number | null>(null);
+  const [analysisSummary, setAnalysisSummary] = useState<DiagramAnalysisSummary | null>(null);
+  const [scenarioRefreshSignal, setScenarioRefreshSignal] = useState<number | null>(null);
   const {
     leftSidebarOpen,
     setLeftSidebarOpen,
@@ -144,6 +157,63 @@ export default function ModelerPage() {
     setAnnouncement("Blank canvas ready. Drop components from the left palette.");
   }, [setAnnouncement, setSelectedElementInfo]);
 
+  const startConnectionFromSelection = useCallback(() => {
+    if (selectedElementInfo?.kind !== "node") {
+      setAnnouncement("Select a node to inject the next connection.");
+      return;
+    }
+    setConnectionStarterNodeId(selectedElementInfo.id);
+    setAnnouncement(`Linking from ${selectedElementInfo.label}. Click the destination node.`);
+  }, [selectedElementInfo, setAnnouncement, setConnectionStarterNodeId]);
+
+  const updateSimulationTarget = useCallback((field: SimulationTargetField, value: string) => {
+    setSimulationTargets((current) => ({ ...current, [field]: value }));
+  }, []);
+
+  const localSaveLabel =
+    localSaveStatus === "saving"
+      ? "Saving locally..."
+      : localSaveStatus === "saved"
+        ? "Saved locally"
+        : localSaveStatus === "error"
+          ? "Local save failed"
+          : "Local copy ready";
+  const remoteSaveLabel =
+    saveStatus === "saving"
+      ? "Saving remotely..."
+      : saveStatus === "saved"
+        ? "Saved remotely"
+        : saveStatus === "error"
+          ? "Remote save failed"
+          : "Remote workspace idle";
+
+  const analysisTitle = analysisSummary?.scenarioName ?? diagramTitle;
+  const analysisDescription =
+    analysisSummary?.scenarioDescription ??
+    diagramDescription ??
+    selectedScenario?.description ??
+    "Insights for the current open diagram.";
+  const analysisUpdatedAt = analysisSummary?.timestamp
+    ? new Date(analysisSummary.timestamp).toLocaleString()
+    : null;
+  const validationInsights = analysisSummary?.validationMessages ?? [];
+  const simulationMetrics = analysisSummary?.simulationSnapshot;
+  const simulationEvents = simulationMetrics?.events ?? [];
+  const formattedTrafficTarget = analysisSummary?.trafficRps
+    ? `${numberFormatter.format(analysisSummary.trafficRps)} req/s`
+    : "n/a";
+
+  const activeToolLabel = useMemo(
+    () => toolOptions.find((tool) => tool.id === activeTool)?.label ?? "Select",
+    [activeTool],
+  );
+  const selectedScenario = useMemo(
+    () =>
+      systemExamples.find((scenario) => scenario.system_name === selectedScenarioName) ??
+      systemExamples[0],
+    [selectedScenarioName],
+  );
+
   const handleSaveLocal = useCallback(() => {
     if (!latestGraph) {
       setLocalSaveStatus("error");
@@ -181,47 +251,6 @@ export default function ModelerPage() {
     selectedScenarioName,
     setAnnouncement,
   ]);
-
-  const startConnectionFromSelection = useCallback(() => {
-    if (selectedElementInfo?.kind !== "node") {
-      setAnnouncement("Select a node to inject the next connection.");
-      return;
-    }
-    setConnectionStarterNodeId(selectedElementInfo.id);
-    setAnnouncement(`Linking from ${selectedElementInfo.label}. Click the destination node.`);
-  }, [selectedElementInfo, setAnnouncement, setConnectionStarterNodeId]);
-
-  const updateSimulationTarget = useCallback((field: SimulationTargetField, value: string) => {
-    setSimulationTargets((current) => ({ ...current, [field]: value }));
-  }, []);
-
-  const localSaveLabel =
-    localSaveStatus === "saving"
-      ? "Saving locally..."
-      : localSaveStatus === "saved"
-        ? "Saved locally"
-        : localSaveStatus === "error"
-          ? "Local save failed"
-          : "Local copy ready";
-  const remoteSaveLabel =
-    saveStatus === "saving"
-      ? "Saving remotely..."
-      : saveStatus === "saved"
-        ? "Saved remotely"
-        : saveStatus === "error"
-          ? "Remote save failed"
-          : "Remote workspace idle";
-
-  const activeToolLabel = useMemo(
-    () => toolOptions.find((tool) => tool.id === activeTool)?.label ?? "Select",
-    [activeTool],
-  );
-  const selectedScenario = useMemo(
-    () =>
-      systemExamples.find((scenario) => scenario.system_name === selectedScenarioName) ??
-      systemExamples[0],
-    [selectedScenarioName],
-  );
   const paletteItems = useMemo(
     () =>
       toolbarCategories.flatMap((category) =>
@@ -784,6 +813,13 @@ export default function ModelerPage() {
               <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">
                 {selectedScenario?.description}
               </p>
+              <button
+                type="button"
+                onClick={() => setScenarioRefreshSignal((value) => Date.now())}
+                className="w-full rounded-2xl border border-line bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-500/60"
+              >
+                Reapply preset
+              </button>
             </section>
 
             <section className="space-y-3 rounded-[1.4rem] border border-line bg-background/60 p-3">
@@ -821,20 +857,22 @@ export default function ModelerPage() {
         </aside>
 
         <main id="modeler" className="min-h-0 flex-1 overflow-hidden bg-slate-950">
-          <DiagramModeler
-            headless
-            canvasOnly
-            scenarioName={selectedScenarioName}
-            workspaceId={workspaceId ?? undefined}
-            onSelectionInfoChange={setSelectedElementInfo}
-            onGraphDocumentChange={setLatestGraph}
-            diagramMetadataName={diagramTitle}
-            diagramMetadataDescription={diagramDescription}
-            environmentProfile={environmentProfile}
-            resetSignal={newDiagramSignal}
-            pendingConnectionFrom={connectionStarterNodeId}
-            onPendingConnectionConsumed={() => setConnectionStarterNodeId(null)}
-          />
+            <DiagramModeler
+              headless
+              canvasOnly
+              scenarioName={selectedScenarioName}
+              workspaceId={workspaceId ?? undefined}
+              onSelectionInfoChange={setSelectedElementInfo}
+              onGraphDocumentChange={setLatestGraph}
+              onAnalysisSummaryUpdate={setAnalysisSummary}
+              diagramMetadataName={diagramTitle}
+              diagramMetadataDescription={diagramDescription}
+              environmentProfile={environmentProfile}
+              resetSignal={newDiagramSignal}
+              pendingConnectionFrom={connectionStarterNodeId}
+              onPendingConnectionConsumed={() => setConnectionStarterNodeId(null)}
+              scenarioRefreshSignal={scenarioRefreshSignal}
+            />
         </main>
 
         <aside
@@ -970,13 +1008,19 @@ export default function ModelerPage() {
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Final summary analysis"
-            className="h-[min(84vh,760px)] w-full max-w-5xl overflow-y-auto rounded-3xl border border-line bg-background p-7 shadow-2xl"
+            aria-label="Detailed diagram analysis"
+            className="h-[min(90vh,780px)] w-full max-w-6xl overflow-y-auto rounded-3xl border border-line bg-background p-7 shadow-2xl"
           >
-            <div className="flex items-start justify-between gap-6">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-700">Final Summary Analysis</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight">{selectedScenario?.system_name}</h2>
+            <div className="flex items-center justify-between gap-6">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-700">Live architecture analysis</p>
+                <h2 className="text-2xl font-semibold tracking-tight">{analysisTitle}</h2>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  {analysisDescription}
+                </p>
+                {analysisUpdatedAt ? (
+                  <p className="text-[0.65rem] text-slate-500">Updated {analysisUpdatedAt}</p>
+                ) : null}
               </div>
               <button
                 onClick={() => setShowAnalysis(false)}
@@ -986,37 +1030,124 @@ export default function ModelerPage() {
               </button>
             </div>
 
-            <p className="mt-4 text-sm leading-7 text-slate-600 dark:text-slate-300">
-              {selectedScenario?.description}
-            </p>
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              <section className="rounded-2xl border border-line bg-panel px-5 py-5">
+                <h3 className="text-lg font-semibold">Scoreboard</h3>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  {[
+                    { label: "Overall score", value: simulationMetrics?.overallScore },
+                    { label: "Resilience", value: simulationMetrics?.resilience },
+                    { label: "Performance", value: simulationMetrics?.performance },
+                    { label: "Security", value: simulationMetrics?.security },
+                    { label: "Cost efficiency", value: simulationMetrics?.costEfficiency },
+                  ].map((metric) => (
+                    <div key={metric.label} className="rounded-2xl border border-slate-200 bg-white/80 px-3 py-3 text-center text-sm">
+                      <p className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">{metric.label}</p>
+                      <p className="mt-2 text-lg font-semibold text-slate-900">
+                        {formatPercent(metric.value)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-            <div className="mt-6 flex flex-wrap gap-2">
-              {selectedScenario?.design_patterns.map((pattern) => (
-                <span key={pattern} className="rounded-full border border-line bg-panel px-3 py-1 text-xs">
-                  {pattern}
-                </span>
-              ))}
+              <section className="rounded-2xl border border-line bg-panel px-5 py-5">
+                <h3 className="text-lg font-semibold">Traffic & cost</h3>
+                <div className="mt-3 grid gap-3 text-sm text-slate-600">
+                  <div className="flex items-center justify-between">
+                    <span>Traffic target</span>
+                    <span className="font-semibold text-slate-900">{formattedTrafficTarget}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Average latency</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatLatency(simulationMetrics?.avgLatency)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Demand</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatRequests(simulationMetrics?.demand)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Estimated hourly cost</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatCost(simulationMetrics?.estimatedCost)}
+                    </span>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <section className="rounded-2xl border border-line bg-background px-5 py-5">
+                <h3 className="text-lg font-semibold">Validation findings ({validationInsights.length})</h3>
+                {validationInsights.length ? (
+                  <div className="mt-4 space-y-3 max-h-56 overflow-y-auto pr-1 text-sm">
+                    {validationInsights.map((message) => (
+                      <div
+                        key={`${message.rule}-${message.detail}`}
+                        className="rounded-2xl border border-slate-200 bg-white/80 p-3"
+                      >
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${
+                            message.level === "reject"
+                              ? "bg-rose-50 text-rose-700"
+                              : message.level === "warn"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {message.level.toUpperCase()}
+                        </span>
+                        <p className="mt-2 font-semibold text-slate-900">{message.rule}</p>
+                        <p className="text-[0.85rem] text-slate-500">{message.detail}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-slate-500">
+                    No validation issues detected yet. Keep building to surface focused insights.
+                  </p>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-line bg-background px-5 py-5">
+                <h3 className="text-lg font-semibold">Simulation events</h3>
+                {simulationEvents.length ? (
+                  <div className="mt-4 space-y-3 text-sm text-slate-600">
+                    {simulationEvents.map((event, index) => (
+                      <div key={`${event}-${index}`} className="rounded-2xl border border-slate-200 bg-white/80 px-3 py-2">
+                        {event}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-slate-500">
+                    The simulator has not emitted any events yet. Run or step the simulation to gather live observations.
+                  </p>
+                )}
+              </section>
             </div>
 
             <section className="mt-6 rounded-2xl border border-line bg-panel px-5 py-5">
-              <h3 className="text-lg font-semibold">Scale Profile</h3>
-              <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                {selectedScenario
-                  ? Object.entries(selectedScenario.scale).map(([key, value]) => (
-                    <li key={key}>
-                      <span className="font-semibold text-foreground">{key.replaceAll("_", " ")}:</span> {value}
-                    </li>
-                  ))
-                  : null}
-              </ul>
-            </section>
-
-            <section className="mt-6 rounded-2xl border border-line bg-panel px-5 py-5">
-              <h3 className="text-lg font-semibold">Next Actions</h3>
-              <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
-                <li>Drag components from the left panel to extend this baseline.</li>
-                <li>Connect critical paths with Shift+Click source then target.</li>
-                <li>Validate each selected node’s documentation in the right sidebar.</li>
+              <h3 className="text-lg font-semibold">Next actions</h3>
+              <ol className="mt-3 space-y-2 pl-5 text-sm text-slate-600">
+                {[
+                  validationInsights.length
+                    ? `Resolve ${validationInsights.length} validation issue${validationInsights.length === 1 ? "" : "s"} to improve the overall score.`
+                    : "Validation rules are satisfied; introduce failure scenarios or new traffic mixes to stretch the topology.",
+                  simulationEvents.length
+                    ? `Investigate ${Math.min(simulationEvents.length, 3)} simulator event${simulationEvents.length === 1 ? "" : "s"} for anomalies.`
+                    : "Step the simulation (Ctrl+Enter) to surface runtime events and anomalies.",
+                  environmentMode === "cloud"
+                    ? `Target provider: ${selectedCloudProvider} (${cloudRegion}).`
+                    : `Self-hosted lab: ${selfHostedRegion} · Net ${selfHostedNetworkBudget}, Power ${selfHostedPowerBudget}.`,
+                  "Save the diagram locally or push to the remote workspace to lock the current insights.",
+                ].map((action, index) => (
+                  <li key={action + index}>{action}</li>
+                ))}
               </ol>
             </section>
           </div>
