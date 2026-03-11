@@ -48,10 +48,22 @@ API_AUTH_SIM_TENANT_ID=dev-tenant
 # Header-driven auth
 API_AUTH_PROVIDER=header
 API_AUTH_SIMULATION=0
+# per-request headers required:
+# x-actor-id, x-tenant-id, x-actor-type
 ```
+
+## Tenant Isolation
+
+- Workspaces are tenant-scoped; access is denied when request tenant does not match workspace tenant.
+- In simulation mode, tenant comes from `API_AUTH_SIM_TENANT_ID`.
+- In header mode, tenant comes from `x-tenant-id`.
 
 ## Validation In CI / Local
 
 - `npm run test:integration:memory` validates in-memory DB + in-memory auth simulation end-to-end.
 - `npm run test:integration:sql` validates SQL repositories when `DATABASE_URL` is set.
 - `npm run test:integration:rbac` validates header-auth RBAC matrix when `DATABASE_URL` is set.
+- `GET /api/audit/verify-chain` validates audit hash-chain integrity for the active tenant.
+
+
+

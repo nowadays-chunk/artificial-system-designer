@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@asd/contracts": ["packages/contracts/src/index.ts"],
+      "@asd/contracts/*": ["packages/contracts/src/*"]
     }
   },
   "include": [

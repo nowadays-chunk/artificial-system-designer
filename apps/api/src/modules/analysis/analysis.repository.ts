@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { AnalysisScorecard, ValidationFinding } from "../../../../../packages/contracts/src/analysis";
+import type { AnalysisScorecard, ValidationFinding } from "@asd/contracts/analysis";
 import { readDbConfigFromEnv } from "../../lib/db/config";
 
 type AnalysisRepository = {

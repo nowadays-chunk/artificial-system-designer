@@ -4,8 +4,8 @@ import { readDbConfigFromEnv } from "../../lib/db/config";
 import type { DiagramVersion, GraphDocument, Workspace } from "./workspace.types";
 
 type WorkspaceRepository = {
-  createWorkspace(name: string): Workspace;
-  getWorkspaceById(workspaceId: string): Workspace | null;
+  createWorkspace(name: string, tenantId: string): Workspace;
+  getWorkspaceById(workspaceId: string, tenantId?: string): Workspace | null;
   createDiagramVersion(input: {
     workspaceId: string;
     baseVersionId?: string;
@@ -52,19 +52,27 @@ function createMemoryWorkspaceRepository(): WorkspaceRepository {
   const versionsByWorkspace = new Map<string, DiagramVersion[]>();
 
   return {
-    createWorkspace(name: string): Workspace {
+    createWorkspace(name: string, tenantId: string): Workspace {
       const now = new Date().toISOString();
       const workspace: Workspace = {
         id: randomUUID(),
         name,
+        tenantId,
         createdAt: now,
       };
       workspaces.set(workspace.id, workspace);
       versionsByWorkspace.set(workspace.id, []);
       return workspace;
     },
-    getWorkspaceById(workspaceId: string): Workspace | null {
-      return workspaces.get(workspaceId) ?? null;
+    getWorkspaceById(workspaceId: string, tenantId?: string): Workspace | null {
+      const workspace = workspaces.get(workspaceId) ?? null;
+      if (!workspace) {
+        return null;
+      }
+      if (tenantId && workspace.tenantId !== tenantId) {
+        return null;
+      }
+      return workspace;
     },
     createDiagramVersion(input: {
       workspaceId: string;
@@ -95,19 +103,21 @@ function createMemoryWorkspaceRepository(): WorkspaceRepository {
 
 function createPostgresWorkspaceRepository(databaseUrl: string): WorkspaceRepository {
   return {
-    createWorkspace(name: string): Workspace {
+    createWorkspace(name: string, tenantId: string): Workspace {
       const escapedName = escapeSqlLiteral(name);
+      const escapedTenantId = escapeSqlLiteral(tenantId);
       const workspaceId = randomUUID();
       const sql = `
         WITH inserted AS (
-          INSERT INTO workspaces (id, name)
-          VALUES ('${workspaceId}'::uuid, '${escapedName}')
-          RETURNING id, name, created_at
+          INSERT INTO workspaces (id, tenant_id, name)
+          VALUES ('${workspaceId}'::uuid, '${escapedTenantId}', '${escapedName}')
+          RETURNING id, tenant_id, name, created_at
         )
         SELECT row_to_json(mapped)::text
         FROM (
           SELECT
             id::text AS id,
+            tenant_id AS "tenantId",
             name,
             created_at::text AS "createdAt"
           FROM inserted
@@ -119,17 +129,22 @@ function createPostgresWorkspaceRepository(databaseUrl: string): WorkspaceReposi
       }
       return created;
     },
-    getWorkspaceById(workspaceId: string): Workspace | null {
+    getWorkspaceById(workspaceId: string, tenantId?: string): Workspace | null {
       const escapedId = escapeSqlLiteral(workspaceId);
+      const tenantFilter = tenantId
+        ? `AND tenant_id = '${escapeSqlLiteral(tenantId)}'`
+        : "";
       const sql = `
         SELECT row_to_json(mapped)::text
         FROM (
           SELECT
             id::text AS id,
+            tenant_id AS "tenantId",
             name,
             created_at::text AS "createdAt"
           FROM workspaces
           WHERE id = '${escapedId}'::uuid
+            ${tenantFilter}
           LIMIT 1
         ) mapped;
       `;
@@ -221,12 +236,12 @@ function createWorkspaceRepository(): WorkspaceRepository {
 
 const repository = createWorkspaceRepository();
 
-export function createWorkspace(name: string): Workspace {
-  return repository.createWorkspace(name);
+export function createWorkspace(name: string, tenantId: string): Workspace {
+  return repository.createWorkspace(name, tenantId);
 }
 
-export function getWorkspaceById(workspaceId: string): Workspace | null {
-  return repository.getWorkspaceById(workspaceId);
+export function getWorkspaceById(workspaceId: string, tenantId?: string): Workspace | null {
+  return repository.getWorkspaceById(workspaceId, tenantId);
 }
 
 export function createDiagramVersion(input: {

@@ -26,7 +26,7 @@ export async function handleCreateWorkspaceRequest(
 ) {
   try {
     const name = typeof body === "object" && body !== null ? (body as { name?: unknown }).name : undefined;
-    const workspace = createWorkspaceService(name, auth.actorId);
+    const workspace = createWorkspaceService(name, auth.actorId, auth.tenantId);
     recordAuditEvent({
       tenantId: auth.tenantId,
       actorId: auth.actorId,
@@ -54,7 +54,7 @@ export async function handleGetWorkspaceRequest(
 ) {
   try {
     requireWorkspaceRole(auth, workspaceId, "viewer");
-    const workspace = getWorkspaceService(workspaceId);
+    const workspace = getWorkspaceService(workspaceId, auth.tenantId);
     recordAuditEvent({
       tenantId: auth.tenantId,
       actorId: auth.actorId,
@@ -85,6 +85,7 @@ export async function handleCreateDiagramVersionRequest(
     const parsed = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
     const version = createDiagramVersionService({
       workspaceId,
+      tenantId: auth.tenantId,
       baseVersionId: parsed.baseVersionId,
       graph: parsed.graph,
       message: parsed.message,

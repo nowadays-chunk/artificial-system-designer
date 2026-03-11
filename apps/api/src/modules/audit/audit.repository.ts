@@ -3,6 +3,19 @@ import { spawnSync } from "node:child_process";
 import { readDbConfigFromEnv } from "../../lib/db/config";
 import type { AuditEvent } from "./audit.types";
 
+type AuditChainEvent = {
+  id: string;
+  tenantId: string;
+  actorId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  payload: Record<string, unknown>;
+  occurredAt: string;
+  prevHash: string;
+  hash: string;
+};
+
 type AuditRepository = {
   appendAuditEvent(input: {
     tenantId: string;
@@ -12,6 +25,7 @@ type AuditRepository = {
     resourceId: string;
     payload?: Record<string, unknown>;
   }): AuditEvent;
+  listByTenant(tenantId: string): AuditChainEvent[];
 };
 
 function canonicalPayload(payload: Record<string, unknown>) {
@@ -122,6 +136,9 @@ function createMemoryAuditRepository(): AuditRepository {
       eventsByTenant.set(input.tenantId, existing);
       return event;
     },
+    listByTenant(tenantId: string) {
+      return [...(eventsByTenant.get(tenantId) ?? [])];
+    },
   };
 }
 
@@ -222,6 +239,32 @@ function createPostgresAuditRepository(databaseUrl: string): AuditRepository {
       }
       return inserted;
     },
+    listByTenant(tenantId: string) {
+      const escapedTenantId = escapeSqlLiteral(tenantId);
+      const rows = runPsql(
+        databaseUrl,
+        `
+          SELECT row_to_json(mapped)::text
+          FROM (
+            SELECT
+              id::text AS id,
+              tenant_id AS "tenantId",
+              actor_id AS "actorId",
+              action,
+              resource_type AS "resourceType",
+              resource_id AS "resourceId",
+              payload_json AS payload,
+              occurred_at::text AS "occurredAt",
+              prev_hash AS "prevHash",
+              hash
+            FROM AuditEvent
+            WHERE tenant_id = '${escapedTenantId}'
+            ORDER BY occurred_at ASC, id ASC
+          ) mapped;
+        `,
+      );
+      return rows.map((row) => JSON.parse(row) as AuditChainEvent);
+    },
   };
 }
 
@@ -246,4 +289,8 @@ export function appendAuditEvent(input: {
   return repository.appendAuditEvent(input);
 }
 
-export type { AuditRepository };
+export function listAuditEventsByTenant(tenantId: string): AuditChainEvent[] {
+  return repository.listByTenant(tenantId);
+}
+
+export type { AuditRepository, AuditChainEvent };

@@ -152,6 +152,11 @@ try {
     "x-tenant-id": tenantId,
     "x-actor-type": "user",
   };
+  const crossTenantOwnerHeaders = {
+    "x-actor-id": ownerActor,
+    "x-tenant-id": "other-tenant",
+    "x-actor-type": "user",
+  };
 
   const createWorkspace = await postJson(baseUrl, "/api/workspaces", { name: workspaceName }, ownerHeaders);
   if (createWorkspace.status !== 201 || typeof createWorkspace.payload.workspaceId !== "string") {
@@ -208,6 +213,11 @@ try {
   const getWorkspaceViewer = await getJson(baseUrl, `/api/workspaces/${workspaceId}`, viewerHeaders);
   if (getWorkspaceViewer.status !== 200) {
     throw new Error(`viewer_workspace_read_failed:${getWorkspaceViewer.status}`);
+  }
+
+  const getWorkspaceCrossTenant = await getJson(baseUrl, `/api/workspaces/${workspaceId}`, crossTenantOwnerHeaders);
+  if (getWorkspaceCrossTenant.status !== 403) {
+    throw new Error(`cross_tenant_workspace_read_should_forbid:${getWorkspaceCrossTenant.status}`);
   }
 
   const createVersionViewer = await postJson(

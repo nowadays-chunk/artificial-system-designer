@@ -1,5 +1,10 @@
 import type { IncomingHttpHeaders } from "node:http";
-import { assignWorkspaceRole, getWorkspaceRole } from "./auth.repository";
+import {
+  assignWorkspaceRole,
+  getWorkspaceRole,
+  getWorkspaceTenant,
+  registerWorkspaceTenant,
+} from "./auth.repository";
 import { readAuthConfigFromEnv } from "./auth.config";
 import type { RequestAuthContext, WorkspaceRole } from "./auth.types";
 
@@ -39,7 +44,8 @@ export function resolveRequestAuth(headers: IncomingHttpHeaders): RequestAuthCon
   };
 }
 
-export function grantWorkspaceOwner(workspaceId: string, actorId: string) {
+export function grantWorkspaceOwner(workspaceId: string, actorId: string, tenantId: string) {
+  registerWorkspaceTenant(workspaceId, tenantId);
   assignWorkspaceRole(workspaceId, actorId, "owner");
 }
 
@@ -48,6 +54,10 @@ export function requireWorkspaceRole(
   workspaceId: string,
   requiredRole: WorkspaceRole,
 ) {
+  const workspaceTenantId = getWorkspaceTenant(workspaceId);
+  if (!workspaceTenantId || workspaceTenantId !== auth.tenantId) {
+    throw new Error("forbidden_workspace_access");
+  }
   const role = getWorkspaceRole(workspaceId, auth.actorId);
   if (!role || !roleSatisfies(requiredRole, role)) {
     throw new Error("forbidden_workspace_access");

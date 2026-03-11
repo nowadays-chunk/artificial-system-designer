@@ -144,6 +144,11 @@ async function runMemorySimulationCase(input: {
     );
     assert.equal(analysis.status, 200);
     assert.equal(typeof analysis.payload.reportId, "string");
+
+    const auditVerify = await getJson(baseUrl, "/api/audit/verify-chain", headers);
+    assert.equal(auditVerify.status, 200);
+    assert.equal(auditVerify.payload.valid, true);
+    assert.ok(Number(auditVerify.payload.checked ?? 0) >= 1);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -176,4 +181,54 @@ test("memory DB + forced auth simulation overrides header mode", async () => {
       "x-actor-type": "service",
     },
   });
+});
+
+test("memory DB + header auth blocks cross-tenant workspace access", async () => {
+  const port = 4700 + Math.floor(Math.random() * 250);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const actorId = "shared-actor";
+
+  Object.assign(process.env, {
+    NODE_ENV: "test",
+    API_DB_PROVIDER: "memory",
+    API_AUTH_PROVIDER: "header",
+    API_AUTH_SIMULATION: "0",
+    API_RUN_MIGRATIONS_ON_BOOT: "0",
+  });
+
+  const { bootstrapApiServer } = await import("../../apps/api/src/main");
+  const server = await bootstrapApiServer(port);
+  try {
+    await waitForHealth(baseUrl);
+    const workspaceCreate = await postJson(
+      baseUrl,
+      "/api/workspaces",
+      { name: "Tenant Isolation Workspace" },
+      {
+        "x-actor-id": actorId,
+        "x-tenant-id": "tenant-a",
+        "x-actor-type": "user",
+      },
+    );
+    assert.equal(workspaceCreate.status, 201);
+    const workspaceId = String(workspaceCreate.payload.workspaceId ?? "");
+    assert.ok(workspaceId.length > 0);
+
+    const crossTenantRead = await getJson(baseUrl, `/api/workspaces/${workspaceId}`, {
+      "x-actor-id": actorId,
+      "x-tenant-id": "tenant-b",
+      "x-actor-type": "user",
+    });
+    assert.equal(crossTenantRead.status, 403);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
 });

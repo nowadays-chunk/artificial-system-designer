@@ -168,6 +168,11 @@ test(
       assert.equal(analysis.status, 200);
       assert.equal(typeof analysis.payload.reportId, "string");
 
+      const auditVerify = await getJson(baseUrl, "/api/audit/verify-chain");
+      assert.equal(auditVerify.status, 200);
+      assert.equal(auditVerify.payload.valid, true);
+      assert.ok(Number(auditVerify.payload.checked ?? 0) >= 1);
+
       const escapedWorkspaceId = escapeSqlLiteral(workspaceId);
       const escapedActorId = escapeSqlLiteral(actorId);
       const escapedTenantId = escapeSqlLiteral(tenantId);
@@ -275,3 +280,4 @@ test(
     }
   },
 );
+

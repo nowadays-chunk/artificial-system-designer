@@ -5,6 +5,7 @@ import { readDbConfigFromEnv } from "./lib/db/config";
 import { runPendingMigrations } from "./lib/db/migrations";
 import { logger } from "./lib/logger";
 import { resolveRequestAuth } from "./modules/auth/auth.service";
+import { handleVerifyAuditChainRequest } from "./modules/audit/audit.controller";
 import { handleHealthRequest } from "./modules/health/health.controller";
 import { handleValidateAnalysisRequest } from "./modules/analysis/analysis.controller";
 import {
@@ -84,6 +85,15 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse) 
   if (route === "/api/analysis/validate" && method === "POST") {
     const body = await parseJsonBody(request);
     const context = await handleValidateAnalysisRequest(response, body, correlationId, logContext, auth);
+    logger.info("request.completed", {
+      ...context,
+      durationMs: Date.now() - started,
+    });
+    return;
+  }
+
+  if (route === "/api/audit/verify-chain" && method === "GET") {
+    const context = await handleVerifyAuditChainRequest(response, correlationId, logContext, auth);
     logger.info("request.completed", {
       ...context,
       durationMs: Date.now() - started,

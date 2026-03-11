@@ -3,8 +3,8 @@ import type {
   AnalysisScorecard,
   FindingSeverity,
   ValidationFinding,
-} from "../../../../../packages/contracts/src/analysis";
-import { validateGraphDocument, type GraphDocument, type GraphNode } from "../../../../../packages/contracts/src/graph";
+} from "@asd/contracts/analysis";
+import { validateGraphDocument, type GraphDocument, type GraphNode } from "@asd/contracts/graph";
 import { saveAnalysisReport } from "./analysis.repository";
 
 type ValidationRequestInput = {

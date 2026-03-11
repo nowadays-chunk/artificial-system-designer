@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { ValidationFinding } from "../../../../../packages/contracts/src/analysis";
-import { validateGraphDocument } from "../../../../../packages/contracts/src/graph";
+import type { ValidationFinding } from "@asd/contracts/analysis";
+import { validateGraphDocument } from "@asd/contracts/graph";
 import type {
   SimulationMetrics,
   SimulationProfile,
   SimulationScorecard,
   SimulationTick,
-} from "../../../../../packages/contracts/src/simulation";
+} from "@asd/contracts/simulation";
 import { completeSimulationRun, createSimulationRun, getSimulationRunEnvelope } from "./simulation.repository";
 import type { CreateSimulationRunInput, SimulationRunEnvelope } from "./simulation.types";
 

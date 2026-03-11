@@ -3,13 +3,14 @@ import test from "node:test";
 import { createDiagramVersionService, createWorkspaceService } from "./workspace.service";
 
 test("createWorkspaceService creates workspace with id", () => {
-  const workspace = createWorkspaceService("Platform Team", "tester");
+  const workspace = createWorkspaceService("Platform Team", "tester", "tenant-a");
   assert.ok(workspace.id);
   assert.equal(workspace.name, "Platform Team");
+  assert.equal(workspace.tenantId, "tenant-a");
 });
 
 test("createDiagramVersionService validates graph and increments version", () => {
-  const workspace = createWorkspaceService("Architecture", "tester");
+  const workspace = createWorkspaceService("Architecture", "tester", "tenant-a");
   const graph = {
     schemaVersion: "1.0" as const,
     nodes: [
@@ -49,11 +50,13 @@ test("createDiagramVersionService validates graph and increments version", () =>
 
   const v1 = createDiagramVersionService({
     workspaceId: workspace.id,
+    tenantId: "tenant-a",
     graph,
     message: "Initial",
   });
   const v2 = createDiagramVersionService({
     workspaceId: workspace.id,
+    tenantId: "tenant-a",
     graph,
     message: "Second",
     baseVersionId: v1.id,

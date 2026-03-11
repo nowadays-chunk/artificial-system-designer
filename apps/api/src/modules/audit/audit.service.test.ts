@@ -1,23 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { recordAuditEvent } from "./audit.service";
+import { recordAuditEvent, verifyAuditChain } from "./audit.service";
 
-test("recordAuditEvent appends hash-chained entries", () => {
-  const first = recordAuditEvent({
-    tenantId: "tenant-audit-test",
-    actorId: "u1",
+test("verifyAuditChain returns valid for appended events", () => {
+  const tenantId = `tenant-audit-${Date.now()}`;
+  recordAuditEvent({
+    tenantId,
+    actorId: "audit-user",
     action: "workspace.create",
     resourceType: "workspace",
-    resourceId: "w1",
+    resourceId: "w-1",
+    payload: { name: "A" },
   });
-  const second = recordAuditEvent({
-    tenantId: "tenant-audit-test",
-    actorId: "u1",
+  recordAuditEvent({
+    tenantId,
+    actorId: "audit-user",
     action: "workspace.read",
     resourceType: "workspace",
-    resourceId: "w1",
+    resourceId: "w-1",
   });
 
-  assert.notEqual(first.hash, second.hash);
-  assert.equal(second.prevHash, first.hash);
+  const result = verifyAuditChain(tenantId);
+  assert.equal(result.valid, true);
+  assert.ok(result.checked >= 2);
 });

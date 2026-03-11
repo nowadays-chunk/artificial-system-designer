@@ -1,4 +1,5 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
     "target": "ES2020",
     "module": "CommonJS",
@@ -15,8 +16,7 @@
   "include": [
     "tests/**/*.ts",
     "app/modeler/commands/**/*.ts",
-    "packages/contracts/src/**/*.ts",
-    "apps/api/src/**/*.ts"
+    "packages/contracts/src/**/*.ts"
   ],
   "exclude": ["node_modules", ".next"]
 }

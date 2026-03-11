@@ -1,12 +1,12 @@
-import type { ValidationFinding } from "../../../../../packages/contracts/src/analysis";
-import type { GraphDocument } from "../../../../../packages/contracts/src/graph";
+import type { ValidationFinding } from "@asd/contracts/analysis";
+import type { GraphDocument } from "@asd/contracts/graph";
 import type {
   SimulationMetrics,
   SimulationProfile,
   SimulationRun,
   SimulationScorecard,
   SimulationTick,
-} from "../../../../../packages/contracts/src/simulation";
+} from "@asd/contracts/simulation";
 
 export type StoredSimulationRun = SimulationRun & {
   graph: GraphDocument;

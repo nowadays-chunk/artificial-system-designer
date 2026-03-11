@@ -1,20 +1,20 @@
-import { validateGraphDocument } from "../../../../../packages/contracts/src/graph";
+import { validateGraphDocument } from "@asd/contracts/graph";
 import { grantWorkspaceOwner } from "../auth/auth.service";
 import { createDiagramVersion, createWorkspace, getWorkspaceById } from "./workspace.repository";
 import type { DiagramVersion, GraphDocument, Workspace } from "./workspace.types";
 
-export function createWorkspaceService(name: unknown, actorId: string): Workspace {
+export function createWorkspaceService(name: unknown, actorId: string, tenantId: string): Workspace {
   if (typeof name !== "string" || name.trim().length < 2) {
     throw new Error("invalid_workspace_name");
   }
 
-  const workspace = createWorkspace(name.trim());
-  grantWorkspaceOwner(workspace.id, actorId);
+  const workspace = createWorkspace(name.trim(), tenantId);
+  grantWorkspaceOwner(workspace.id, actorId, tenantId);
   return workspace;
 }
 
-export function getWorkspaceService(workspaceId: string): Workspace {
-  const workspace = getWorkspaceById(workspaceId);
+export function getWorkspaceService(workspaceId: string, tenantId: string): Workspace {
+  const workspace = getWorkspaceById(workspaceId, tenantId);
   if (!workspace) {
     throw new Error("workspace_not_found");
   }
@@ -23,6 +23,7 @@ export function getWorkspaceService(workspaceId: string): Workspace {
 
 export function createDiagramVersionService(input: {
   workspaceId: string;
+  tenantId: string;
   baseVersionId?: unknown;
   graph: unknown;
   message: unknown;
@@ -36,7 +37,7 @@ export function createDiagramVersionService(input: {
     throw new Error(`invalid_graph_document:${graphValidation.errors.join(";")}`);
   }
 
-  const workspace = getWorkspaceById(input.workspaceId);
+  const workspace = getWorkspaceById(input.workspaceId, input.tenantId);
   if (!workspace) {
     throw new Error("workspace_not_found");
   }
