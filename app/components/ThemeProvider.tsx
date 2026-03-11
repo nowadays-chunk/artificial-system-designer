@@ -20,11 +20,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         return savedTheme || systemTheme;
     });
-    const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
         document.documentElement.classList.toggle("dark", theme === "dark");
-        setMounted(true);
     }, [theme]);
 
     const toggleTheme = () => {
@@ -36,9 +34,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     return (
         <ThemeContext.Provider value={{ theme, toggleTheme }}>
-            <div style={!mounted ? { visibility: "hidden" } : undefined}>
-                {children}
-            </div>
+            {children}
         </ThemeContext.Provider>
     );
 }
@@ -50,3 +46,5 @@ export function useTheme() {
     }
     return context;
 }
+
+

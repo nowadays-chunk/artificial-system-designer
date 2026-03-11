@@ -128,44 +128,68 @@ export default function LandingPage() {
       </a>
 
       <header
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrolled ? "bg-panel/80 backdrop-blur-xl border-b border-line shadow-lg" : ""
-        }`}
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-panel/80 backdrop-blur-xl border-b border-line shadow-lg" : ""
+          }`}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-3">
-            <svg   
+            <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 256 256"
-              width="60"
-              height="60"
+              width={60}
+              height={60}
               fill="none"
               role="img"
-              aria-label="Artificial system designer icon">
-              <rect x="20" y="20" width="216" height="216" rx="32" fill="#F8FAFC"/>
+              aria-label="Artificial system designer icon"
+            >
+              <rect x="20" y="20" width="216" height="216" rx="32" fill="#F8FAFC" />
 
-              <rect x="52" y="56" width="152" height="68" rx="18" fill="#E2E8F0"/>
-              <rect x="68" y="72" width="24" height="24" rx="8" fill="#06B6D4"/>
-              <rect x="100" y="72" width="24" height="24" rx="8" fill="#67E8F9"/>
-              <rect x="132" y="72" width="24" height="24" rx="8" fill="#22C55E"/>
-              <rect x="164" y="72" width="24" height="24" rx="8" fill="#A78BFA"/>
+              <rect x="52" y="56" width="152" height="68" rx="18" fill="#E2E8F0" />
+              <rect x="68" y="72" width="24" height="24" rx="8" fill="#06B6D4" />
+              <rect x="100" y="72" width="24" height="24" rx="8" fill="#67E8F9" />
+              <rect x="132" y="72" width="24" height="24" rx="8" fill="#22C55E" />
+              <rect x="164" y="72" width="24" height="24" rx="8" fill="#A78BFA" />
 
-              <path d="M80 96v18M112 96v18M144 96v18M176 96v18" stroke="#94A3B8" stroke-width="8" stroke-linecap="round"/>
+              <path
+                d="M80 96v18M112 96v18M144 96v18M176 96v18"
+                stroke="#94A3B8"
+                strokeWidth="8"
+                strokeLinecap="round"
+              />
 
-              <rect x="64" y="136" width="128" height="56" rx="20" fill="#0F172A"/>
+              <rect x="64" y="136" width="128" height="56" rx="20" fill="#0F172A" />
 
-              <path d="M88 154h40M88 170h24M136 170h32" stroke="#CBD5E1" stroke-width="8" stroke-linecap="round"/>
+              <path
+                d="M88 154h40M88 170h24M136 170h32"
+                stroke="#CBD5E1"
+                strokeWidth="8"
+                strokeLinecap="round"
+              />
 
               <g transform="translate(0 0)">
-                <rect x="144" y="148" width="44" height="14" rx="7" transform="rotate(-35 144 148)" fill="#22D3EE"/>
-                <path d="M183.5 128.5l10 10-10.5 4.5-4-4z" fill="#F8FAFC"/>
-                <path d="M140.5 158.5l7 7-12 5z" fill="#38BDF8"/>
+                <rect
+                  x="144"
+                  y="148"
+                  width="44"
+                  height="14"
+                  rx="7"
+                  transform="rotate(-35 144 148)"
+                  fill="#22D3EE"
+                />
+                <path d="M183.5 128.5l10 10-10.5 4.5-4-4z" fill="#F8FAFC" />
+                <path d="M140.5 158.5l7 7-12 5z" fill="#38BDF8" />
               </g>
 
-              <circle cx="80" cy="210" r="8" fill="#06B6D4"/>
-              <circle cx="128" cy="210" r="8" fill="#22C55E"/>
-              <circle cx="176" cy="210" r="8" fill="#A78BFA"/>
-              <path d="M88 210h32M136 210h32" stroke="#94A3B8" stroke-width="8" stroke-linecap="round"/>
+              <circle cx="80" cy="210" r="8" fill="#06B6D4" />
+              <circle cx="128" cy="210" r="8" fill="#22C55E" />
+              <circle cx="176" cy="210" r="8" fill="#A78BFA" />
+
+              <path
+                d="M88 210h32M136 210h32"
+                stroke="#94A3B8"
+                strokeWidth="8"
+                strokeLinecap="round"
+              />
             </svg>
             <div>
               <p className="text-lg font-semibold tracking-tight">Artificial System Designer</p>
@@ -401,11 +425,10 @@ export default function LandingPage() {
               ].map((plan) => (
                 <article
                   key={plan.name}
-                  className={`flex h-full flex-col rounded-3xl border p-6 shadow-xl ${
-                    plan.accent
-                      ? "border-cyan-500/50 bg-cyan-500/10"
-                      : "border-line bg-panel/70"
-                  }`}
+                  className={`flex h-full flex-col rounded-3xl border p-6 shadow-xl ${plan.accent
+                    ? "border-cyan-500/50 bg-cyan-500/10"
+                    : "border-line bg-panel/70"
+                    }`}
                 >
                   <p className="text-sm font-semibold uppercase tracking-[0.26em] text-cyan-500">{plan.name}</p>
                   <p className="mt-4 text-3xl font-semibold">{plan.price}</p>
@@ -419,11 +442,10 @@ export default function LandingPage() {
                     ))}
                   </ul>
                   <button
-                    className={`mt-8 rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-                      plan.accent
-                        ? "bg-cyan-600 text-white hover:bg-cyan-700"
-                        : "border border-line hover:border-cyan-500/40"
-                    }`}
+                    className={`mt-8 rounded-2xl px-4 py-2 text-sm font-semibold transition ${plan.accent
+                      ? "bg-cyan-600 text-white hover:bg-cyan-700"
+                      : "border border-line hover:border-cyan-500/40"
+                      }`}
                   >
                     {plan.name === "Enterprise" ? "Talk to sales" : "Choose plan"}
                   </button>
