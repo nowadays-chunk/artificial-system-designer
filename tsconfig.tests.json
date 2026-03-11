@@ -7,7 +7,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "outDir": ".tmp-tests",
+    "outDir": "node_modules/.cache/asd-tests",
     "rootDir": ".",
     "noEmit": false,
     "declaration": false
