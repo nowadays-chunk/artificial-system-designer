@@ -9,9 +9,9 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:prepare": "tsc -p tsconfig.tests.json",
-    "test:e2e": "node --test --test-isolation=none node_modules/.cache/asd-tests/tests/e2e/*.spec.js",
-    "test:integration": "node --test --test-isolation=none node_modules/.cache/asd-tests/tests/integration/*.spec.js",
-    "test:perf": "node --test --test-isolation=none node_modules/.cache/asd-tests/tests/perf/*.spec.js",
+    "test:e2e": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/e2e/modeler-core.spec.js",
+    "test:integration": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/integration/api-contracts.spec.js",
+    "test:perf": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/perf/modeler-bench.spec.js",
     "test": "npm run test:integration && npm run test:e2e",
     "test:ci": "npm run test:prepare && npm run test:integration && npm run test:e2e && npm run test:perf"
   },

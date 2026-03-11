@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { correlationHeaderName, getOrCreateCorrelationId } from "./lib/correlation";
+import { createSqlAdapter } from "./lib/db/adapter";
+import { readDbConfigFromEnv } from "./lib/db/config";
+import { runPendingMigrations } from "./lib/db/migrations";
 import { logger } from "./lib/logger";
 import { resolveRequestAuth } from "./modules/auth/auth.service";
 import { handleHealthRequest } from "./modules/health/health.controller";
@@ -193,7 +196,27 @@ export function startApiServer(port = defaultPort) {
   return server;
 }
 
+export async function bootstrapApiServer(port = defaultPort) {
+  const dbConfig = readDbConfigFromEnv();
+  if (dbConfig.runMigrationsOnBoot) {
+    const adapter = createSqlAdapter(dbConfig);
+    const migrationResult = await runPendingMigrations({ config: dbConfig, adapter });
+    logger.info("migrations.completed", {
+      provider: migrationResult.provider,
+      targetKey: migrationResult.targetKey,
+      appliedCount: migrationResult.applied.length,
+      skippedCount: migrationResult.skipped.length,
+      applied: migrationResult.applied,
+    });
+  }
+  return startApiServer(port);
+}
+
 if (process.env.NODE_ENV !== "test") {
   const port = Number(process.env.PORT ?? defaultPort);
-  startApiServer(Number.isFinite(port) ? port : defaultPort);
+  bootstrapApiServer(Number.isFinite(port) ? port : defaultPort).catch((error) => {
+    const message = error instanceof Error ? error.message : "unknown_error";
+    logger.error("api.bootstrap_failed", { error: message });
+    process.exit(1);
+  });
 }

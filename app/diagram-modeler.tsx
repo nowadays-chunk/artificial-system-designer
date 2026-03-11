@@ -2,6 +2,7 @@
 
 import {
   startTransition,
+  useCallback,
   useDeferredValue,
   useEffect,
   useEffectEvent,
@@ -1537,7 +1538,7 @@ export function DiagramModeler({
     return `${prefix}-${generatedIdRef.current}`;
   };
 
-  const applyScenarioSelection = (scenarioName: string) => {
+  const applyScenarioSelection = useCallback((scenarioName: string) => {
     const scenario =
       systemExamples.find((item) => item.system_name === scenarioName) ?? systemExamples[0];
     if (!scenario) {
@@ -1553,7 +1554,7 @@ export function DiagramModeler({
       replaceGraph(nextGraph.nodes, nextGraph.edges, null);
       resetTick();
     });
-  };
+  }, [replaceGraph, resetTick, setGuidedStepCount, setSelectedScenarioName, setTrafficRps]);
 
   useEffect(() => {
     let active = true;

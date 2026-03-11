@@ -1,0 +1,11 @@
+{
+  "appliedByTarget": {
+    "memory": [
+      "0001_init_core_tables",
+      "0002_add_version_branching",
+      "0003_add_scenario_runs",
+      "0004_add_audit_hash_chain"
+    ]
+  },
+  "updatedAt": "2026-03-11T17:03:06.083Z"
+}
