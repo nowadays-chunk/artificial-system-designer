@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS ScenarioRun (
   id UUID PRIMARY KEY,
-  workspace_id UUID NOT NULL REFERENCES Workspace(id),
-  version_id UUID NOT NULL REFERENCES DiagramVersion(id),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  version_id UUID NOT NULL REFERENCES diagram_versions(id) ON DELETE CASCADE,
   scenario_id TEXT NOT NULL,
   seed INTEGER NOT NULL,
   profile TEXT NOT NULL,

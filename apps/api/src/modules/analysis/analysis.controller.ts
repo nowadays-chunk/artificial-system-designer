@@ -28,6 +28,8 @@ export async function handleValidateAnalysisRequest(
     }
     requireWorkspaceRole(auth, workspaceId, "viewer");
     const result = validateArchitectureService({
+      workspaceId,
+      versionId: payload.versionId,
       graph: payload.graph,
       scenarioId: payload.scenarioId,
     });

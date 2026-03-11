@@ -13,6 +13,7 @@ This project supports explicit in-memory simulation toggles for both database an
 ```bash
 # In-memory DB simulation
 API_DB_PROVIDER=memory
+API_RUN_MIGRATIONS_ON_BOOT=0
 ```
 
 ```bash
@@ -38,6 +39,7 @@ Simulation identity controls:
 ```bash
 # In-memory auth simulation
 API_AUTH_PROVIDER=in_memory
+API_AUTH_SIMULATION=1
 API_AUTH_SIM_ACTOR_ID=dev-user
 API_AUTH_SIM_TENANT_ID=dev-tenant
 ```
@@ -45,4 +47,11 @@ API_AUTH_SIM_TENANT_ID=dev-tenant
 ```bash
 # Header-driven auth
 API_AUTH_PROVIDER=header
+API_AUTH_SIMULATION=0
 ```
+
+## Validation In CI / Local
+
+- `npm run test:integration:memory` validates in-memory DB + in-memory auth simulation end-to-end.
+- `npm run test:integration:sql` validates SQL repositories when `DATABASE_URL` is set.
+- `npm run test:integration:rbac` validates header-auth RBAC matrix when `DATABASE_URL` is set.

@@ -3,6 +3,8 @@ import { readDbConfigFromEnv } from "../../lib/db/config";
 import type { WorkspaceRole } from "./auth.types";
 
 type AuthRepository = {
+  registerWorkspaceTenant(workspaceId: string, tenantId: string): void;
+  getWorkspaceTenant(workspaceId: string): string | null;
   assignWorkspaceRole(workspaceId: string, actorId: string, role: WorkspaceRole): void;
   getWorkspaceRole(workspaceId: string, actorId: string): WorkspaceRole | null;
 };
@@ -33,8 +35,15 @@ function runPsql(databaseUrl: string, sql: string): string[] {
 }
 
 function createMemoryAuthRepository(): AuthRepository {
+  const tenantByWorkspace = new Map<string, string>();
   const rolesByWorkspace = new Map<string, Map<string, WorkspaceRole>>();
   return {
+    registerWorkspaceTenant(workspaceId: string, tenantId: string) {
+      tenantByWorkspace.set(workspaceId, tenantId);
+    },
+    getWorkspaceTenant(workspaceId: string): string | null {
+      return tenantByWorkspace.get(workspaceId) ?? null;
+    },
     assignWorkspaceRole(workspaceId: string, actorId: string, role: WorkspaceRole) {
       const existing = rolesByWorkspace.get(workspaceId) ?? new Map<string, WorkspaceRole>();
       existing.set(actorId, role);
@@ -52,6 +61,25 @@ function createMemoryAuthRepository(): AuthRepository {
 
 function createPostgresAuthRepository(databaseUrl: string): AuthRepository {
   return {
+    registerWorkspaceTenant() {
+      // persisted by workspace repository
+    },
+    getWorkspaceTenant(workspaceId: string): string | null {
+      const escapedWorkspaceId = escapeSqlLiteral(workspaceId);
+      const rows = runPsql(
+        databaseUrl,
+        `
+          SELECT tenant_id
+          FROM workspaces
+          WHERE id = '${escapedWorkspaceId}'::uuid
+          LIMIT 1;
+        `,
+      );
+      if (rows.length === 0) {
+        return null;
+      }
+      return rows[0] ?? null;
+    },
     assignWorkspaceRole(workspaceId: string, actorId: string, role: WorkspaceRole) {
       const escapedWorkspaceId = escapeSqlLiteral(workspaceId);
       const escapedActorId = escapeSqlLiteral(actorId);
@@ -113,6 +141,14 @@ function createAuthRepository(): AuthRepository {
 }
 
 const repository = createAuthRepository();
+
+export function registerWorkspaceTenant(workspaceId: string, tenantId: string) {
+  repository.registerWorkspaceTenant(workspaceId, tenantId);
+}
+
+export function getWorkspaceTenant(workspaceId: string): string | null {
+  return repository.getWorkspaceTenant(workspaceId);
+}
 
 export function assignWorkspaceRole(workspaceId: string, actorId: string, role: WorkspaceRole) {
   repository.assignWorkspaceRole(workspaceId, actorId, role);

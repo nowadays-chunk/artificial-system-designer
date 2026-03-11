@@ -96,7 +96,12 @@ export async function handleGetSimulationRunRequest(
     return { ...logContext, statusCode: 200 };
   } catch (error) {
     const message = error instanceof Error ? error.message : "invalid_request";
-    const statusCode = message === "simulation_run_not_found" ? 404 : 500;
+    const statusCode =
+      message === "simulation_run_not_found"
+        ? 404
+        : message === "forbidden_workspace_access"
+          ? 403
+          : 500;
     writeJson(response, statusCode, { error: message }, correlationId);
     return { ...logContext, statusCode, error: message };
   }

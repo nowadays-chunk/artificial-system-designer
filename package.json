@@ -10,7 +10,11 @@
     "typecheck": "tsc --noEmit",
     "test:prepare": "tsc -p tsconfig.tests.json",
     "test:e2e": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/e2e/modeler-core.spec.js",
-    "test:integration": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/integration/api-contracts.spec.js",
+    "test:integration:contracts": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/integration/api-contracts.spec.js",
+    "test:integration:memory": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/integration/memory-simulation.spec.js",
+    "test:integration:sql": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/integration/sql-endpoints.spec.js && node tests/integration/sql-repositories.mjs",
+    "test:integration:rbac": "node tests/integration/rbac-endpoints.mjs",
+    "test:integration": "npm run test:prepare && npm run test:integration:contracts && npm run test:integration:memory && npm run test:integration:sql && npm run test:integration:rbac",
     "test:perf": "node scripts/run-node-test.mjs node_modules/.cache/asd-tests/tests/perf/modeler-bench.spec.js",
     "test": "npm run test:integration && npm run test:e2e",
     "test:ci": "npm run test:prepare && npm run test:integration && npm run test:e2e && npm run test:perf"

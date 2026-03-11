@@ -40,7 +40,11 @@ test("validateArchitectureService returns findings and scorecard", () => {
     ],
   };
 
-  const result = validateArchitectureService({ graph, scenarioId: "global-saas" });
+  const result = validateArchitectureService({
+    workspaceId: "workspace-test",
+    graph,
+    scenarioId: "global-saas",
+  });
   assert.ok(result.reportId);
   assert.ok(result.findings.length > 0);
   assert.equal(typeof result.scorecard.overall, "number");
@@ -50,6 +54,7 @@ test("validateArchitectureService rejects invalid graph", () => {
   assert.throws(
     () =>
       validateArchitectureService({
+        workspaceId: "workspace-test",
         graph: { schemaVersion: "1.0", nodes: [], edges: [{ id: "e1" }] },
       }),
     /invalid_graph_document:/,

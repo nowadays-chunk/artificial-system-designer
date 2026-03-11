@@ -5,8 +5,11 @@ import type {
   ValidationFinding,
 } from "../../../../../packages/contracts/src/analysis";
 import { validateGraphDocument, type GraphDocument, type GraphNode } from "../../../../../packages/contracts/src/graph";
+import { saveAnalysisReport } from "./analysis.repository";
 
 type ValidationRequestInput = {
+  workspaceId: unknown;
+  versionId?: unknown;
   graph: unknown;
   scenarioId?: unknown;
 };
@@ -114,6 +117,9 @@ function scoreFromFindings(findings: ValidationFinding[], graph: GraphDocument):
 }
 
 export function validateArchitectureService(input: ValidationRequestInput): ValidationResponse {
+  if (typeof input.workspaceId !== "string" || input.workspaceId.length === 0) {
+    throw new Error("invalid_workspace_id");
+  }
   const graphValidation = validateGraphDocument(input.graph);
   if (!graphValidation.ok) {
     throw new Error(`invalid_graph_document:${graphValidation.errors.join(";")}`);
@@ -249,9 +255,20 @@ export function validateArchitectureService(input: ValidationRequestInput): Vali
   }
 
   const limitedFindings = findings.slice(0, 6);
-  return {
-    reportId: randomUUID(),
+  const scorecard = scoreFromFindings(limitedFindings, graph);
+  const summary = `Generated ${limitedFindings.length} finding(s) for ${graph.nodes.length} node(s) and ${graph.edges.length} edge(s).`;
+  const saved = saveAnalysisReport({
+    workspaceId: input.workspaceId,
+    versionId: typeof input.versionId === "string" && input.versionId.length > 0 ? input.versionId : undefined,
+    scenarioId: typeof input.scenarioId === "string" && input.scenarioId.length > 0 ? input.scenarioId : undefined,
+    summary,
     findings: limitedFindings,
-    scorecard: scoreFromFindings(limitedFindings, graph),
+    scorecard,
+  });
+
+  return {
+    reportId: saved.reportId,
+    findings: limitedFindings,
+    scorecard,
   };
 }

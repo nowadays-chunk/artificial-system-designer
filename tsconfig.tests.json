@@ -15,7 +15,8 @@
   "include": [
     "tests/**/*.ts",
     "app/modeler/commands/**/*.ts",
-    "packages/contracts/src/**/*.ts"
+    "packages/contracts/src/**/*.ts",
+    "apps/api/src/**/*.ts"
   ],
   "exclude": ["node_modules", ".next"]
 }
