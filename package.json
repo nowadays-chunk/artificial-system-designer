@@ -6,7 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test:prepare": "tsc -p tsconfig.tests.json",
+    "test:e2e": "node --test --test-isolation=none .tmp-tests/tests/e2e/*.spec.js",
+    "test:integration": "node --test --test-isolation=none .tmp-tests/tests/integration/*.spec.js",
+    "test:perf": "node --test --test-isolation=none .tmp-tests/tests/perf/*.spec.js",
+    "test": "npm run test:integration && npm run test:e2e",
+    "test:ci": "npm run test:prepare && npm run test:integration && npm run test:e2e && npm run test:perf"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",

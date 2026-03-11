@@ -442,7 +442,9 @@ export default function LandingPage() {
             <div className="mt-12 grid gap-6 lg:grid-cols-2">
               {testimonials.map((story) => (
                 <article key={story.name} className="rounded-3xl border border-line bg-panel/80 p-6 shadow-xl">
-                  <p className="text-base leading-relaxed text-slate-700 dark:text-slate-200">"{story.quote}"</p>
+                  <p className="text-base leading-relaxed text-slate-700 dark:text-slate-200">
+                    &quot;{story.quote}&quot;
+                  </p>
                   <div className="mt-6">
                     <p className="text-sm font-semibold">{story.name}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{story.role}</p>

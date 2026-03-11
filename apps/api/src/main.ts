@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { correlationHeaderName, getOrCreateCorrelationId } from "./lib/correlation";
 import { logger } from "./lib/logger";
+import { resolveRequestAuth } from "./modules/auth/auth.service";
 import { handleHealthRequest } from "./modules/health/health.controller";
 import { handleValidateAnalysisRequest } from "./modules/analysis/analysis.controller";
 import {
@@ -46,9 +47,17 @@ function parseJsonBody(request: IncomingMessage): Promise<unknown> {
 async function routeRequest(request: IncomingMessage, response: ServerResponse) {
   const started = Date.now();
   const correlationId = getOrCreateCorrelationId(request.headers);
+  const auth = resolveRequestAuth(request.headers);
   const route = (request.url ?? "/").split("?")[0];
   const method = request.method ?? "GET";
-  const logContext = { correlationId, route, method, service: "asd-api" };
+  const logContext = {
+    correlationId,
+    route,
+    method,
+    service: "asd-api",
+    actorId: auth.actorId,
+    tenantId: auth.tenantId,
+  };
 
   if (route === "/api/health" && method === "GET") {
     const context = handleHealthRequest(response, startedAtMs, correlationId, logContext);
@@ -61,7 +70,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse) 
 
   if (route === "/api/workspaces" && method === "POST") {
     const body = await parseJsonBody(request);
-    const context = await handleCreateWorkspaceRequest(response, body, correlationId, logContext);
+    const context = await handleCreateWorkspaceRequest(response, body, correlationId, logContext, auth);
     logger.info("request.completed", {
       ...context,
       durationMs: Date.now() - started,
@@ -71,7 +80,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse) 
 
   if (route === "/api/analysis/validate" && method === "POST") {
     const body = await parseJsonBody(request);
-    const context = await handleValidateAnalysisRequest(response, body, correlationId, logContext);
+    const context = await handleValidateAnalysisRequest(response, body, correlationId, logContext, auth);
     logger.info("request.completed", {
       ...context,
       durationMs: Date.now() - started,
@@ -81,7 +90,13 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse) 
 
   if (route === "/api/simulations/runs" && method === "POST") {
     const body = await parseJsonBody(request);
-    const context = await handleCreateSimulationRunRequest(response, body, correlationId, logContext);
+    const context = await handleCreateSimulationRunRequest(
+      response,
+      body,
+      correlationId,
+      logContext,
+      auth,
+    );
     logger.info("request.completed", {
       ...context,
       durationMs: Date.now() - started,
@@ -96,6 +111,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse) 
       simulationRunMatch[1],
       correlationId,
       logContext,
+      auth,
     );
     logger.info("request.completed", {
       ...context,
@@ -111,6 +127,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse) 
       workspaceMatch[1],
       correlationId,
       logContext,
+      auth,
     );
     logger.info("request.completed", {
       ...context,
@@ -128,6 +145,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse) 
       body,
       correlationId,
       logContext,
+      auth,
     );
     logger.info("request.completed", {
       ...context,

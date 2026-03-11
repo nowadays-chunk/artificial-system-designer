@@ -1340,12 +1340,14 @@ export function DiagramModeler({
   headless = false,
   canvasOnly = false,
   scenarioName,
+  workspaceId,
   onSelectionInfoChange,
   onGraphDocumentChange,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
   scenarioName?: string;
+  workspaceId?: string;
   onSelectionInfoChange?: (selection: DiagramSelectionInfo) => void;
   onGraphDocumentChange?: (graph: GraphDocument) => void;
 }) {
@@ -1420,6 +1422,7 @@ export function DiagramModeler({
     [selectedScenarioName],
   );
   const deferredPaletteQuery = useDeferredValue(paletteQuery);
+  const activeWorkspaceId = workspaceId ?? "local-workspace";
   const canvasShortcuts = shortcutsByScope("canvas");
   const stepTickShortcut = shortcutById("step-tick");
   const toggleRunShortcut = shortcutById("toggle-run");
@@ -1559,6 +1562,7 @@ export function DiagramModeler({
       try {
         const report = await validateArchitectureAnalysis({
           graph: graphDocument,
+          workspaceId: activeWorkspaceId,
           scenarioId: selectedScenarioName || undefined,
         });
         if (!active) {
@@ -1577,7 +1581,7 @@ export function DiagramModeler({
     return () => {
       active = false;
     };
-  }, [graphDocument, selectedScenarioName]);
+  }, [activeWorkspaceId, graphDocument, selectedScenarioName]);
 
   useEffect(() => {
     let active = true;
@@ -1586,7 +1590,7 @@ export function DiagramModeler({
       try {
         const seed = hashGraphSeed(graphDocument, selectedScenarioName);
         const created = await createSimulationRun({
-          workspaceId: "local-workspace",
+          workspaceId: activeWorkspaceId,
           versionId: "live-graph",
           scenarioId: selectedScenarioName || "custom",
           seed,
@@ -1616,7 +1620,7 @@ export function DiagramModeler({
     return () => {
       active = false;
     };
-  }, [graphDocument, selectedScenarioName, trafficRps]);
+  }, [activeWorkspaceId, graphDocument, selectedScenarioName, trafficRps]);
 
   const loadScenarioSteps = (stepCount: number) => {
     if (!selectedScenario) {

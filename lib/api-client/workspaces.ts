@@ -1,4 +1,5 @@
 import type { GraphDocument } from "../../packages/contracts/src/graph";
+import { authHeaders } from "./auth-headers";
 
 type CreateWorkspaceResponse = {
   workspaceId: string;
@@ -27,7 +28,7 @@ async function parseJsonOrThrow(response: Response) {
 export async function createWorkspace(name: string): Promise<CreateWorkspaceResponse> {
   const response = await fetch(`${apiBaseUrl()}/api/workspaces`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify({ name }),
   });
   const payload = await parseJsonOrThrow(response);
@@ -45,7 +46,7 @@ export async function createDiagramVersion(input: {
 }): Promise<CreateDiagramVersionResponse> {
   const response = await fetch(`${apiBaseUrl()}/api/workspaces/${input.workspaceId}/diagram-versions`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify({
       graph: input.graph,
       message: input.message,
@@ -58,4 +59,3 @@ export async function createDiagramVersion(input: {
     number: Number(payload.number),
   };
 }
-

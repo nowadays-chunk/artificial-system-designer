@@ -424,6 +424,7 @@ export default function ModelerPage() {
             headless
             canvasOnly
             scenarioName={selectedScenarioName}
+            workspaceId={workspaceId ?? undefined}
             onSelectionInfoChange={setSelectedElementInfo}
             onGraphDocumentChange={setLatestGraph}
           />

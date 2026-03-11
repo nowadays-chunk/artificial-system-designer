@@ -10,6 +10,7 @@ import {
   type SimulationStatus,
   type SimulationTick,
 } from "../../packages/contracts/src/simulation";
+import { authHeaders } from "./auth-headers";
 
 const defaultApiBase = "http://localhost:4010";
 
@@ -41,7 +42,7 @@ export async function createSimulationRun(input: {
 
   const response = await fetch(`${apiBaseUrl()}/api/simulations/runs`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify(input),
   });
   const payload = await parseJsonOrThrow(response);
@@ -59,7 +60,9 @@ export async function getSimulationRun(runId: string): Promise<{
   ticks: SimulationTick[];
   findings: ValidationFinding[];
 }> {
-  const response = await fetch(`${apiBaseUrl()}/api/simulations/runs/${runId}`);
+  const response = await fetch(`${apiBaseUrl()}/api/simulations/runs/${runId}`, {
+    headers: { ...authHeaders() },
+  });
   const payload = await parseJsonOrThrow(response);
 
   const metrics = payload.metrics;

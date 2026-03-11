@@ -4,6 +4,7 @@ import {
   type ValidationFinding,
 } from "../../packages/contracts/src/analysis";
 import { validateGraphDocument, type GraphDocument } from "../../packages/contracts/src/graph";
+import { authHeaders } from "./auth-headers";
 
 const defaultApiBase = "http://localhost:4010";
 
@@ -38,6 +39,7 @@ function isScorecard(value: unknown): value is AnalysisScorecard {
 
 export async function validateArchitectureAnalysis(input: {
   graph: GraphDocument;
+  workspaceId: string;
   scenarioId?: string;
 }): Promise<{ reportId: string; findings: ValidationFinding[]; scorecard: AnalysisScorecard }> {
   const graphValidation = validateGraphDocument(input.graph);
@@ -47,9 +49,10 @@ export async function validateArchitectureAnalysis(input: {
 
   const response = await fetch(`${apiBaseUrl()}/api/analysis/validate`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify({
       graph: input.graph,
+      workspaceId: input.workspaceId,
       scenarioId: input.scenarioId,
     }),
   });
