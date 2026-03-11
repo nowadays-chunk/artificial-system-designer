@@ -64,6 +64,10 @@ async function executeSql(sql) {
   });
 }
 
+function escapeSqlLiteral(value) {
+  return value.replace(/'/g, "''");
+}
+
 async function readJournal() {
   try {
     const raw = await readFile(path.join(stateDir, "migration-journal.json"), "utf8");
@@ -82,11 +86,81 @@ async function writeJournal(journal) {
   );
 }
 
+async function ensureSqlMigrationTable() {
+  if (provider !== "postgres_psql") {
+    return;
+  }
+  await executeSql(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      target_key TEXT NOT NULL,
+      migration_id TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (target_key, migration_id)
+    );
+  `);
+}
+
+async function readAppliedFromSql(targetKey) {
+  if (provider !== "postgres_psql") {
+    return new Set();
+  }
+  const escapedTarget = escapeSqlLiteral(targetKey);
+  const rows = [];
+  await new Promise((resolve, reject) => {
+    const handle = spawn(
+      "psql",
+      [databaseUrl, "-v", "ON_ERROR_STOP=1", "-t", "-A", "-q", "-c", `
+        SELECT migration_id
+        FROM schema_migrations
+        WHERE target_key = '${escapedTarget}'
+        ORDER BY migration_id ASC;
+      `],
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
+    );
+    let stderr = "";
+    handle.stdout.on("data", (chunk) => {
+      const lines = String(chunk).split("\\n").map((line) => line.trim()).filter(Boolean);
+      rows.push(...lines);
+    });
+    handle.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    handle.on("error", reject);
+    handle.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`migration_sql_failed:${stderr.trim() || code}`));
+        return;
+      }
+      resolve();
+    });
+  });
+  return new Set(rows);
+}
+
+async function markAppliedInSql(targetKey, migrationId) {
+  if (provider !== "postgres_psql") {
+    return;
+  }
+  const escapedTarget = escapeSqlLiteral(targetKey);
+  const escapedId = escapeSqlLiteral(migrationId);
+  await executeSql(`
+    INSERT INTO schema_migrations (target_key, migration_id)
+    VALUES ('${escapedTarget}', '${escapedId}')
+    ON CONFLICT (target_key, migration_id) DO NOTHING;
+  `);
+}
+
 async function main() {
   const targetKey = provider === "memory" ? "memory" : `postgres:${hashDatabaseUrl(databaseUrl)}`;
   const migrations = await readMigrations();
-  const journal = await readJournal();
-  const appliedSet = new Set(journal.appliedByTarget[targetKey] ?? []);
+  const useSqlJournal = provider === "postgres_psql";
+  if (useSqlJournal) {
+    await ensureSqlMigrationTable();
+  }
+  const journal = useSqlJournal ? null : await readJournal();
+  const appliedSet = useSqlJournal
+    ? await readAppliedFromSql(targetKey)
+    : new Set(journal.appliedByTarget[targetKey] ?? []);
   const applied = [];
   const skipped = [];
 
@@ -97,11 +171,16 @@ async function main() {
     }
     await executeSql(migration.sql);
     appliedSet.add(migration.id);
+    if (useSqlJournal) {
+      await markAppliedInSql(targetKey, migration.id);
+    }
     applied.push(migration.id);
   }
 
-  journal.appliedByTarget[targetKey] = [...appliedSet];
-  await writeJournal(journal);
+  if (!useSqlJournal) {
+    journal.appliedByTarget[targetKey] = [...appliedSet];
+    await writeJournal(journal);
+  }
 
   console.log(
     JSON.stringify(

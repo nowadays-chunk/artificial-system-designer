@@ -1,5 +1,6 @@
 import type { IncomingHttpHeaders } from "node:http";
 import { assignWorkspaceRole, getWorkspaceRole } from "./auth.repository";
+import { readAuthConfigFromEnv } from "./auth.config";
 import type { RequestAuthContext, WorkspaceRole } from "./auth.types";
 
 const ACTOR_ID_HEADER = "x-actor-id";
@@ -23,6 +24,11 @@ function roleSatisfies(requiredRole: WorkspaceRole, actualRole: WorkspaceRole) {
 }
 
 export function resolveRequestAuth(headers: IncomingHttpHeaders): RequestAuthContext {
+  const config = readAuthConfigFromEnv();
+  if (config.provider === "in_memory") {
+    return config.simulationActor;
+  }
+
   const actorId = readHeader(headers, ACTOR_ID_HEADER) ?? "anonymous";
   const tenantId = readHeader(headers, TENANT_ID_HEADER) ?? "default";
   const rawType = readHeader(headers, ACTOR_TYPE_HEADER);

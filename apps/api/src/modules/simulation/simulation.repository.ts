@@ -274,6 +274,7 @@ function createPostgresSimulationRepository(databaseUrl: string): SimulationRepo
       if (!existing) {
         throw new Error("simulation_run_not_found");
       }
+      const escapedRunId = escapeSqlLiteral(runId);
 
       const graph = parseStoredGraph(existing.metricsJson?.graph);
       const trafficRps = parseTrafficRps(existing.metricsJson?.trafficRps);
@@ -372,7 +373,18 @@ function createPostgresSimulationRepository(databaseUrl: string): SimulationRepo
     },
     getSimulationRunEnvelope(runId: string): SimulationRunEnvelope | null {
       const run = querySimulationRowById(databaseUrl, runId);
-      if (!run || !run.metrics || !run.scorecard) {
+      if (!run) {
+        return null;
+      }
+      const metrics =
+        run.metricsJson && typeof run.metricsJson.metrics === "object" && run.metricsJson.metrics !== null
+          ? (run.metricsJson.metrics as SimulationMetrics)
+          : null;
+      const scorecard =
+        run.metricsJson && typeof run.metricsJson.scorecard === "object" && run.metricsJson.scorecard !== null
+          ? (run.metricsJson.scorecard as SimulationScorecard)
+          : null;
+      if (!metrics || !scorecard) {
         return null;
       }
 
@@ -407,11 +419,11 @@ function createPostgresSimulationRepository(databaseUrl: string): SimulationRepo
           status: run.status,
           startedAt: run.startedAt,
           finishedAt: run.finishedAt ?? undefined,
-          metrics: run.metrics as SimulationMetrics,
-          scorecard: run.scorecard as SimulationScorecard,
+          metrics,
+          scorecard,
         },
-        metrics: run.metrics as SimulationMetrics,
-        scorecard: run.scorecard as SimulationScorecard,
+        metrics,
+        scorecard,
         ticks,
         findings,
       };
