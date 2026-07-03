@@ -28,6 +28,7 @@ import { validateArchitectureAnalysis } from "../lib/api-client/analysis";
 import { createSimulationRun, getSimulationRun } from "../lib/api-client/simulation";
 import type { ValidationFinding } from "../packages/contracts/src/analysis";
 import type { SimulationTick as ApiSimulationTick } from "../packages/contracts/src/simulation";
+import { Search, Undo2, Redo2, HelpCircle, Lock } from "lucide-react";
 
 type PaletteItem = {
   key: string;
@@ -60,10 +61,82 @@ type DiagramEdge = {
   purpose: string;
 };
 
+const PROVIDER_SERVICES_MAP: Record<string, Record<string, string>> = {
+  api_gateway: {
+    aws: "Amazon API Gateway",
+    gcp: "Apigee API Manager",
+    azure: "Azure API Gateway",
+    cloudflare: "Cloudflare Workers GW",
+  },
+  database: {
+    aws: "Amazon RDS Postgres",
+    gcp: "Google Cloud SQL",
+    azure: "Azure SQL Database",
+    cloudflare: "Cloudflare D1 Store",
+  },
+  service: {
+    aws: "AWS ECS Container",
+    gcp: "GCP Cloud Run Service",
+    azure: "Azure App Service",
+    cloudflare: "Cloudflare Workers",
+  },
+  lambda: {
+    aws: "AWS Lambda Function",
+    gcp: "GCP Cloud Functions",
+    azure: "Azure Functions",
+    cloudflare: "Cloudflare Workers",
+  },
+  cdn: {
+    aws: "Amazon CloudFront",
+    gcp: "GCP Cloud CDN",
+    azure: "Azure Front Door",
+    cloudflare: "Cloudflare CDN Edge",
+  },
+  queue: {
+    aws: "Amazon SQS Queue",
+    gcp: "Google Pub/Sub Topic",
+    azure: "Azure Service Bus",
+    cloudflare: "Cloudflare Queue",
+  },
+  cache: {
+    aws: "Amazon ElastiCache",
+    gcp: "GCP Cloud Memorystore",
+    azure: "Azure Cache for Redis",
+    cloudflare: "Cloudflare KV Cache",
+  },
+  waf: {
+    aws: "AWS WAF Shield",
+    gcp: "Google Cloud Armor",
+    azure: "Azure WAF Control",
+    cloudflare: "Cloudflare WAF Rules",
+  },
+  storage: {
+    aws: "Amazon S3 Bucket",
+    gcp: "Google Cloud Storage",
+    azure: "Azure Blob Storage",
+    cloudflare: "Cloudflare R2 Bucket",
+  },
+  observability: {
+    aws: "Amazon CloudWatch",
+    gcp: "Google Cloud Logging",
+    azure: "Azure Monitor",
+    cloudflare: "Cloudflare Logpush",
+  },
+};
+
+function getProviderLabel(nodeType: string, customLabel: string, activeProvider?: string) {
+  const p = activeProvider?.toLowerCase();
+  if (p && PROVIDER_SERVICES_MAP[nodeType] && PROVIDER_SERVICES_MAP[nodeType][p]) {
+    return PROVIDER_SERVICES_MAP[nodeType][p];
+  }
+  return customLabel;
+}
+
 export type ValidationMessage = {
   level: "warn" | "reject" | "note";
   rule: string;
   detail: string;
+  finding?: ValidationFinding;
 };
 
 export type SimulationNodeState = {
@@ -114,6 +187,7 @@ type DragState = {
   nodeId: string;
   offsetX: number;
   offsetY: number;
+  initialPositions: Record<string, { x: number; y: number }>;
 };
 
 type NodeProfile = {
@@ -974,6 +1048,7 @@ function findingToValidationMessage(finding: ValidationFinding): ValidationMessa
     level,
     rule: finding.ruleCode,
     detail: finding.rationale,
+    finding,
   };
 }
 
@@ -1269,13 +1344,23 @@ function simulateTopology(
   };
 }
 
-function connectionPath(source: DiagramNode, target: DiagramNode) {
+function connectionPath(source: DiagramNode, target: DiagramNode, mode: "curved" | "orthogonal" | "straight" = "curved") {
   const startX = source.x + (source.x <= target.x ? source.width : 0);
   const endX = target.x + (source.x <= target.x ? 0 : target.width);
   const startY = source.y + source.height / 2;
   const endY = target.y + target.height / 2;
-  const delta = Math.max(Math.abs(endX - startX) * 0.42, 120);
 
+  if (mode === "straight") {
+    return `M ${startX} ${startY} L ${endX} ${endY}`;
+  }
+
+  if (mode === "orthogonal") {
+    const midX = (startX + endX) / 2;
+    return `M ${startX} ${startY} H ${midX} V ${endY} H ${endX}`;
+  }
+
+  // Curved (default)
+  const delta = Math.max(Math.abs(endX - startX) * 0.42, 120);
   return `M ${startX} ${startY} C ${startX + delta} ${startY}, ${endX - delta} ${endY}, ${endX} ${endY}`;
 }
 
@@ -1361,6 +1446,7 @@ export function DiagramModeler({
   onPendingConnectionConsumed,
   onAnalysisSummaryUpdate,
   scenarioRefreshSignal,
+  initialGraphDocument = null,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1376,6 +1462,7 @@ export function DiagramModeler({
   onPendingConnectionConsumed?: () => void;
   onAnalysisSummaryUpdate?: (summary: DiagramAnalysisSummary) => void;
   scenarioRefreshSignal?: number | null;
+  initialGraphDocument?: GraphDocument | null;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -1443,6 +1530,273 @@ export function DiagramModeler({
     setTick,
     resetTick,
   } = useSimulationStore(initialTrafficRps);
+
+  // Custom States for Routing, Palette, and History
+  const [connectionRoutingMode, setConnectionRoutingMode] = useState<"curved" | "orthogonal" | "straight">("curved");
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
+  const [announcement, setAnnouncement] = useState("");
+  const [activeWarningPopoverNodeId, setActiveWarningPopoverNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [snapToGridEnabled, setSnapToGridEnabled] = useState(true);
+  const [alignmentGuides, setAlignmentGuides] = useState<{ x?: number; y?: number } | null>(null);
+
+  const initialGraphDocRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!initialGraphDocument) return;
+    const serialized = JSON.stringify(initialGraphDocument);
+    if (initialGraphDocRef.current === serialized) return;
+    initialGraphDocRef.current = serialized;
+    replaceGraph(
+      initialGraphDocument.nodes.map(n => ({
+        ...n,
+        width: n.width ?? 100,
+        height: n.height ?? 60,
+        settings: n.settings ?? {},
+      })) as any,
+      initialGraphDocument.edges.map(e => ({
+        ...e,
+        protocol: e.protocol ?? "HTTPS",
+        purpose: e.purpose ?? "request",
+      })) as any,
+      null
+    );
+    setGuidedStepCount(0);
+    resetTick();
+  }, [initialGraphDocument, replaceGraph, setGuidedStepCount, resetTick]);
+
+  const executeRemediation = useCallback((cmd: any) => {
+    const activeRole = typeof window !== "undefined" ? (window.localStorage.getItem("asd_sim_actor_role") ?? "editor") : "editor";
+    if (activeRole === "viewer") {
+      alert("Access Denied: Viewer role cannot apply remediations.");
+      return;
+    }
+
+    if (cmd.command === "graph.addNode") {
+      const type = cmd.params.suggestedType || "api_gateway";
+      const label = type.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+      const newNode = {
+        id: `node-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        type,
+        label,
+        category: "Infrastructure Layer",
+        x: 200 + Math.random() * 200,
+        y: 150 + Math.random() * 150,
+        width: 100,
+        height: 60,
+        settings: {},
+      } as any;
+      addNode(newNode);
+      setAnnouncement(`Remediation executed: Added node ${label}`);
+    } else if (cmd.command === "graph.insertNodeBetween") {
+      const edgeId = cmd.params.edgeId;
+      const targetEdge = edges.find((e) => e.id === edgeId);
+      if (targetEdge) {
+        const sourceId = targetEdge.sourceId;
+        const targetId = targetEdge.targetId;
+        
+        removeEdge(edgeId);
+
+        const midId = `node-${Date.now()}`;
+        const type = cmd.params.suggestedType || "app_service";
+        const label = type.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+        const midNode = {
+          id: midId,
+          type,
+          label,
+          category: "Application Layer",
+          x: 350,
+          y: 200,
+          width: 100,
+          height: 60,
+          settings: {},
+        } as any;
+        addNode(midNode);
+
+        addEdge({
+          id: `edge-${Date.now()}-1`,
+          sourceId,
+          targetId: midId,
+          protocol: "HTTPS",
+          purpose: "ingress",
+        } as any);
+        addEdge({
+          id: `edge-${Date.now()}-2`,
+          sourceId: midId,
+          targetId,
+          protocol: "TCP",
+          purpose: "data_access",
+        } as any);
+        setAnnouncement(`Remediation executed: Inserted service boundary ${label}`);
+      }
+    } else if (cmd.command === "graph.scale") {
+      const badNode = nodes.find((n) => n.type === "service" || n.type === "app_service");
+      if (badNode) {
+        updateNode(badNode.id, (n) => ({
+          ...n,
+          label: `${n.label} (Scaled)`,
+          settings: { ...n.settings, replicas: 4 }
+        }));
+        setAnnouncement(`Remediation executed: Scaled service instances`);
+      }
+    }
+  }, [addNode, removeEdge, addEdge, edges, nodes, updateNode]);
+
+  const commandList = useMemo(() => {
+    return [
+      {
+        id: "add-apigw",
+        label: "Add Node: API Gateway",
+        category: "infra",
+        action: () => addNode({
+          id: `node-${Date.now()}-1`,
+          type: "api_gateway",
+          label: "API Gateway",
+          category: "Infrastructure Layer",
+          x: 150,
+          y: 150,
+          width: 100,
+          height: 60,
+          settings: {},
+        } as any),
+      },
+      {
+        id: "add-db",
+        label: "Add Node: Database Store",
+        category: "infra",
+        action: () => addNode({
+          id: `node-${Date.now()}-2`,
+          type: "database",
+          label: "Postgres DB",
+          category: "Data Store Layer",
+          x: 450,
+          y: 250,
+          width: 100,
+          height: 60,
+          settings: {},
+        } as any),
+      },
+      {
+        id: "add-service",
+        label: "Add Node: Application Service",
+        category: "infra",
+        action: () => addNode({
+          id: `node-${Date.now()}-3`,
+          type: "service",
+          label: "Core Service",
+          category: "Application Layer",
+          x: 300,
+          y: 200,
+          width: 100,
+          height: 60,
+          settings: {},
+        } as any),
+      },
+      {
+        id: "add-waf",
+        label: "Add Node: WAF Firewall",
+        category: "infra",
+        action: () => addNode({
+          id: `node-${Date.now()}-4`,
+          type: "waf",
+          label: "Cloud Ingress WAF",
+          category: "Security Layer",
+          x: 100,
+          y: 100,
+          width: 100,
+          height: 60,
+          settings: {},
+        } as any),
+      },
+      {
+        id: "auto-layout",
+        label: "Auto Layout Graph",
+        category: "action",
+        action: () => {
+          replaceGraph(autoLayout(nodes), edges, selection);
+        },
+      },
+      {
+        id: "clear-canvas",
+        label: "Clear Modeler Canvas",
+        category: "action",
+        action: () => {
+          replaceGraph([], [], null);
+        },
+      },
+      {
+        id: "toggle-sim",
+        label: "Toggle Simulation Run",
+        category: "simulation",
+        action: () => {
+          setIsRunning((prev) => !prev);
+        },
+      },
+      {
+        id: "sim-stress-burst",
+        label: "Run Simulation Stress: burst load",
+        category: "simulation",
+        action: () => {
+          setAnnouncement("Simulation stress profile switched to: burst");
+        },
+      },
+      {
+        id: "lock-selected",
+        label: "Lock Selected Components",
+        category: "action",
+        action: () => {
+          if (selectedNodeIds.size > 0) {
+            selectedNodeIds.forEach((id) => {
+              updateNode(id, (node) => ({
+                ...node,
+                settings: { ...node.settings, locked: true },
+              }));
+            });
+            setAnnouncement("Locked selected components.");
+          } else if (selection?.kind === "node") {
+            updateNode(selection.id, (node) => ({
+              ...node,
+              settings: { ...node.settings, locked: true },
+            }));
+            setAnnouncement("Locked selected component.");
+          } else {
+            alert("No nodes currently selected to lock.");
+          }
+        },
+      },
+      {
+        id: "unlock-selected",
+        label: "Unlock Selected Components",
+        category: "action",
+        action: () => {
+          if (selectedNodeIds.size > 0) {
+            selectedNodeIds.forEach((id) => {
+              updateNode(id, (node) => ({
+                ...node,
+                settings: { ...node.settings, locked: false },
+              }));
+            });
+            setAnnouncement("Unlocked selected components.");
+          } else if (selection?.kind === "node") {
+            updateNode(selection.id, (node) => ({
+              ...node,
+              settings: { ...node.settings, locked: false },
+            }));
+            setAnnouncement("Unlocked selected component.");
+          } else {
+            alert("No nodes currently selected to unlock.");
+          }
+        },
+      },
+    ];
+  }, [addNode, replaceGraph, nodes, edges, selection, setIsRunning, selectedNodeIds, updateNode]);
+
+  const filteredCommands = useMemo(() => {
+    if (!commandPaletteQuery) return commandList;
+    const q = commandPaletteQuery.toLowerCase();
+    return commandList.filter((cmd) => cmd.label.toLowerCase().includes(q) || cmd.category.toLowerCase().includes(q));
+  }, [commandList, commandPaletteQuery]);
 
   const selectedScenario = useMemo(
     () =>
@@ -1721,6 +2075,11 @@ export function DiagramModeler({
       return;
     }
 
+    const dragNode = nodes.find(n => n.id === dragState.nodeId);
+    if (dragNode?.settings?.locked) {
+      return;
+    }
+
     const rect = canvasRef.current.getBoundingClientRect();
     const nextX = clamp(
       event.clientX - rect.left - dragState.offsetX,
@@ -1733,15 +2092,64 @@ export function DiagramModeler({
       CANVAS_HEIGHT - NODE_HEIGHT - 24,
     );
 
-    updateNode(dragState.nodeId, (node) => ({
-      ...node,
-      x: nextX,
-      y: nextY,
-    }));
+    const snappedX = snapToGridEnabled ? Math.round(nextX / 20) * 20 : nextX;
+    const snappedY = snapToGridEnabled ? Math.round(nextY / 20) * 20 : nextY;
+
+    const startPos = dragState.initialPositions[dragState.nodeId];
+    if (startPos) {
+      const dx = snappedX - startPos.x;
+      const dy = snappedY - startPos.y;
+
+      Object.entries(dragState.initialPositions).forEach(([id, initialPos]) => {
+        const node = nodes.find(n => n.id === id);
+        if (node?.settings?.locked) return;
+
+        const targetX = clamp(initialPos.x + dx, 24, CANVAS_WIDTH - NODE_WIDTH - 24);
+        const targetY = clamp(initialPos.y + dy, 24, CANVAS_HEIGHT - NODE_HEIGHT - 24);
+
+        const finalX = snapToGridEnabled ? Math.round(targetX / 20) * 20 : targetX;
+        const finalY = snapToGridEnabled ? Math.round(targetY / 20) * 20 : targetY;
+
+        updateNode(id, (n) => ({
+          ...n,
+          x: finalX,
+          y: finalY,
+        }));
+      });
+    }
+
+    // Alignment guides calculations
+    let guideX: number | undefined = undefined;
+    let guideY: number | undefined = undefined;
+
+    const draggedCenterX = snappedX + NODE_WIDTH / 2;
+    const draggedCenterY = snappedY + NODE_HEIGHT / 2;
+
+    nodes.forEach((otherNode) => {
+      if (otherNode.id === dragState.nodeId || selectedNodeIds.has(otherNode.id)) {
+        return;
+      }
+      const otherCenterX = otherNode.x + otherNode.width / 2;
+      const otherCenterY = otherNode.y + otherNode.height / 2;
+
+      if (Math.abs(draggedCenterX - otherCenterX) < 6) {
+        guideX = otherCenterX;
+      }
+      if (Math.abs(draggedCenterY - otherCenterY) < 6) {
+        guideY = otherCenterY;
+      }
+    });
+
+    if (guideX !== undefined || guideY !== undefined) {
+      setAlignmentGuides({ x: guideX, y: guideY });
+    } else {
+      setAlignmentGuides(null);
+    }
   });
 
   const handleGlobalPointerUp = useEffectEvent(() => {
     setDragState(null);
+    setAlignmentGuides(null);
   });
 
   useEffect(() => {
@@ -1765,9 +2173,20 @@ export function DiagramModeler({
       }
 
       if (event.key === "Delete" || event.key === "Backspace") {
-        if (selection?.kind === "node") {
-          removeNode(selection.id);
+        if (selectedNodeIds.size > 0) {
+          selectedNodeIds.forEach((id) => {
+            const node = nodes.find(n => n.id === id);
+            if (node?.settings?.locked) return;
+            removeNode(id);
+          });
+          setSelectedNodeIds(new Set());
           setSelection(null);
+        } else if (selection?.kind === "node") {
+          const node = nodes.find(n => n.id === selection.id);
+          if (!node?.settings?.locked) {
+            removeNode(selection.id);
+            setSelection(null);
+          }
         } else if (selection?.kind === "edge") {
           removeEdge(selection.id);
           setSelection(null);
@@ -1786,6 +2205,12 @@ export function DiagramModeler({
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
         event.preventDefault();
         redo();
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setShowCommandPalette((prev) => !prev);
+        setCommandPaletteQuery("");
       }
 
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -1826,6 +2251,7 @@ export function DiagramModeler({
 
       if (event.key === "Escape") {
         setSelection(null);
+        setSelectedNodeIds(new Set());
         setPendingConnectionSourceId(null);
       }
     };
@@ -1846,6 +2272,7 @@ export function DiagramModeler({
     setTick,
     undo,
     updateNode,
+    selectedNodeIds,
   ]);
 
 
@@ -1862,12 +2289,38 @@ export function DiagramModeler({
       return;
     }
 
+    let nextSelection = new Set(selectedNodeIds);
+    if (event.ctrlKey || event.metaKey) {
+      if (nextSelection.has(nodeId)) {
+        nextSelection.delete(nodeId);
+      } else {
+        nextSelection.add(nodeId);
+      }
+    } else {
+      if (!nextSelection.has(nodeId)) {
+        nextSelection = new Set([nodeId]);
+      }
+    }
+    setSelectedNodeIds(nextSelection);
     setSelection({ kind: "node", id: nodeId });
+
     const rect = event.currentTarget.getBoundingClientRect();
+    const initialPositions: Record<string, { x: number; y: number }> = {};
+    nextSelection.forEach((id) => {
+      const n = nodes.find((item) => item.id === id);
+      if (n) {
+        initialPositions[id] = { x: n.x, y: n.y };
+      }
+    });
+    if (!initialPositions[nodeId]) {
+      initialPositions[nodeId] = { x: node.x, y: node.y };
+    }
+
     setDragState({
       nodeId,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top,
+      initialPositions,
     });
   };
 
@@ -1945,6 +2398,7 @@ export function DiagramModeler({
       return;
     }
     setSelection(null);
+    setSelectedNodeIds(new Set());
   };
 
   const inspectorNodeState = selectedNode ? simulation.nodeState[selectedNode.id] : undefined;
@@ -2444,7 +2898,7 @@ export function DiagramModeler({
                     return null;
                   }
 
-                  const path = connectionPath(source, target);
+                  const path = connectionPath(source, target, connectionRoutingMode);
                   const labelPoint = midpoint(source, target);
                   const isSelected = selection?.kind === "edge" && selection.id === edge.id;
                   const isActive = simulation.activeEdgeIds.includes(edge.id);
@@ -2526,6 +2980,28 @@ export function DiagramModeler({
                     </g>
                   );
                 })}
+                {alignmentGuides?.x !== undefined && (
+                  <line
+                    x1={alignmentGuides.x}
+                    y1={0}
+                    x2={alignmentGuides.x}
+                    y2={CANVAS_HEIGHT}
+                    stroke="rgba(6, 182, 212, 0.6)"
+                    strokeWidth={1.5}
+                    strokeDasharray="5 5"
+                  />
+                )}
+                {alignmentGuides?.y !== undefined && (
+                  <line
+                    x1={0}
+                    y1={alignmentGuides.y}
+                    x2={CANVAS_WIDTH}
+                    y2={alignmentGuides.y}
+                    stroke="rgba(6, 182, 212, 0.6)"
+                    strokeWidth={1.5}
+                    strokeDasharray="5 5"
+                  />
+                )}
               </svg>
 
               {nodes.map((node) => {
@@ -2534,6 +3010,14 @@ export function DiagramModeler({
                 const tone = healthTone(state);
                 const isSelected = selection?.kind === "node" && selection.id === node.id;
                 const isConnectionSource = pendingConnectionSourceId === node.id;
+
+                const activeProvider = environmentProfile?.provider || "default";
+                const displayLabel = getProviderLabel(node.type, node.label, activeProvider);
+
+                const nodeFindings = validationMessages.filter(
+                  (msg) => msg.finding?.evidencePath?.nodeIds?.includes(node.id)
+                );
+                const hasWarning = nodeFindings.length > 0;
 
                 const cardStyle: CSSProperties = {
                   left: node.x,
@@ -2556,18 +3040,71 @@ export function DiagramModeler({
                     }}
                     aria-pressed={isSelected}
                     aria-keyshortcuts={deleteShortcut?.ariaKeyShortcuts}
-                    aria-label={`Node ${node.label}. ${state?.health ?? "idle"} health. ${state ? `${formatNumber(state.requests)} requests per second.` : "No traffic."}`}
-                    className="absolute overflow-hidden rounded-[1.35rem] border px-4 py-3 text-left text-white transition duration-150 hover:-translate-y-0.5"
+                    aria-label={`Node ${displayLabel}. ${state?.health ?? "idle"} health. ${state ? `${formatNumber(state.requests)} requests per second.` : "No traffic."}`}
+                    className="absolute overflow-visible rounded-[1.35rem] border px-4 py-3 text-left text-white transition duration-150 hover:-translate-y-0.5"
                     style={cardStyle}
                   >
                     <div
-                      className="absolute inset-x-0 top-0 h-1.5"
+                      className="absolute inset-x-0 top-0 h-1.5 rounded-t-[1.35rem]"
                       style={{ backgroundColor: theme.accent }}
                     />
+                    
+                    {/* Canvas Alert Badge Warning Indicator */}
+                    {hasWarning && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveWarningPopoverNodeId(activeWarningPopoverNodeId === node.id ? null : node.id);
+                        }}
+                        className="absolute -top-2.5 -right-2.5 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md border-2 border-slate-950 animate-bounce cursor-pointer"
+                        title="Architecture alert detected! Click for details."
+                      >
+                        !
+                      </div>
+                    )}
+
+                    {/* Popover warning tooltip */}
+                    {activeWarningPopoverNodeId === node.id && hasWarning && (
+                      <div 
+                        className="absolute bottom-[calc(100%+12px)] left-1/2 -translate-x-1/2 w-64 bg-slate-900 border border-slate-700 text-white rounded-xl p-3 shadow-xl z-50 text-left space-y-2 select-text"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex justify-between items-center border-b border-slate-800 pb-1">
+                          <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wide">
+                            {nodeFindings[0].finding?.ruleCode}
+                          </span>
+                          <button 
+                            type="button"
+                            onClick={() => setActiveWarningPopoverNodeId(null)}
+                            className="text-slate-400 hover:text-white text-[10px] font-medium"
+                          >
+                            Close
+                          </button>
+                        </div>
+                        <p className="text-[11px] leading-4 text-slate-200">{nodeFindings[0].detail}</p>
+                        {nodeFindings[0].finding?.remediation?.map((rem: any) => (
+                          <button
+                            key={rem.id}
+                            type="button"
+                            onClick={() => {
+                              executeRemediation(rem);
+                              setActiveWarningPopoverNodeId(null);
+                            }}
+                            className="w-full text-center py-1 bg-cyan-600 hover:bg-cyan-700 text-white text-[10px] font-semibold rounded-lg transition"
+                          >
+                            Apply: {rem.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="relative flex h-full flex-col">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="text-sm font-semibold leading-5 text-white">{node.label}</p>
+                          <p className="text-sm font-semibold leading-5 text-white flex items-center gap-1.5">
+                            {displayLabel}
+                            {node.settings?.locked && <Lock size={12} className="text-slate-400 shrink-0 animate-pulse" />}
+                          </p>
                           <p className="mt-1 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-300">
                             {titleFromType(node.type)}
                           </p>
@@ -2615,6 +3152,130 @@ export function DiagramModeler({
                   </div>
                 </div>
               ) : null}
+
+              {/* Floating Canvas Overlay Controls */}
+              <div className="absolute top-4 left-4 z-30 flex items-center gap-2 rounded-2xl border border-line bg-panel/90 backdrop-blur px-3 py-2 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCommandPalette(true);
+                    setCommandPaletteQuery("");
+                  }}
+                  className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-cyan-500 transition"
+                  title="Search commands (Ctrl+K)"
+                >
+                  <Search size={16} />
+                </button>
+                <div className="w-[1px] h-4 bg-line" />
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={!canUndo}
+                  className={`rounded-lg p-1.5 transition ${
+                    canUndo 
+                      ? "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 hover:text-cyan-500" 
+                      : "text-slate-300 dark:text-slate-700 cursor-not-allowed"
+                  }`}
+                  title="Undo (Ctrl+Z)"
+                >
+                  <Undo2 size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={redo}
+                  disabled={!canRedo}
+                  className={`rounded-lg p-1.5 transition ${
+                    canRedo 
+                      ? "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 hover:text-cyan-500" 
+                      : "text-slate-300 dark:text-slate-700 cursor-not-allowed"
+                  }`}
+                  title="Redo (Ctrl+Y)"
+                >
+                  <Redo2 size={16} />
+                </button>
+                <div className="w-[1px] h-4 bg-line" />
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 select-none">Routing:</span>
+                <select
+                  value={connectionRoutingMode}
+                  onChange={(e) => setConnectionRoutingMode(e.target.value as any)}
+                  className="rounded-lg border border-line bg-background/50 px-2 py-1 text-xs outline-none focus:border-cyan-500 transition text-foreground"
+                >
+                  <option value="curved">Curved</option>
+                  <option value="orthogonal">Orthogonal</option>
+                  <option value="straight">Straight</option>
+                </select>
+                <div className="w-[1px] h-4 bg-line" />
+                <button
+                  type="button"
+                  onClick={() => setSnapToGridEnabled(!snapToGridEnabled)}
+                  className={`rounded-lg px-2 py-1 text-xs font-semibold border transition ${
+                    snapToGridEnabled
+                      ? "bg-cyan-600/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400"
+                      : "bg-background/50 border-line text-slate-500"
+                  }`}
+                  title="Toggle Snap to Grid (20px)"
+                >
+                  Snap: {snapToGridEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+
+              {/* Command Palette Modal */}
+              {showCommandPalette && (
+                <div 
+                  className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] bg-slate-950/60 backdrop-blur-md"
+                  onClick={() => setShowCommandPalette(false)}
+                >
+                  <div 
+                    className="w-full max-w-lg rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-6 space-y-4"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search commands..."
+                        value={commandPaletteQuery}
+                        onChange={(e) => setCommandPaletteQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm outline-none focus:border-cyan-500 transition text-slate-950 dark:text-white"
+                        autoFocus
+                      />
+                    </div>
+                    
+                    <div className="max-h-[250px] overflow-y-auto pr-1">
+                      <div className="space-y-1">
+                        {filteredCommands.map((cmd) => (
+                          <button
+                            key={cmd.id}
+                            type="button"
+                            onClick={() => {
+                              cmd.action();
+                              setShowCommandPalette(false);
+                            }}
+                            className="w-full text-left px-3 py-2.5 rounded-xl text-sm hover:bg-cyan-500/10 text-slate-700 dark:text-slate-200 hover:text-cyan-700 dark:hover:text-cyan-400 flex items-center justify-between transition"
+                          >
+                            <span className="font-medium">{cmd.label}</span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">{cmd.category}</span>
+                          </button>
+                        ))}
+                        {filteredCommands.length === 0 && (
+                          <p className="text-center text-xs text-slate-500 py-4">No matching commands found.</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-between items-center text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-800 pt-3">
+                      <span>Click to select and execute</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setShowCommandPalette(false)}
+                        className="hover:underline text-slate-400 dark:text-slate-500"
+                      >
+                        [ESC to close]
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2780,6 +3441,21 @@ export function DiagramModeler({
                   </p>
                   <p className="mt-2 text-sm font-medium leading-6 text-slate-900">{message.rule}</p>
                   <p className="mt-2 text-sm leading-6 text-slate-700">{message.detail}</p>
+
+                  {message.finding?.remediation && message.finding.remediation.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {message.finding.remediation.map((rem: any) => (
+                        <button
+                          key={rem.id}
+                          type="button"
+                          onClick={() => executeRemediation(rem)}
+                          className="px-3 py-1 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-semibold rounded-lg transition shadow-sm"
+                        >
+                          Apply: {rem.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   </li>
                 ))}
               </ul>

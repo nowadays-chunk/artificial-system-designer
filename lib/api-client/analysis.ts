@@ -2,39 +2,113 @@ import {
   isValidationFinding,
   type AnalysisScorecard,
   type ValidationFinding,
+  type FindingSeverity,
 } from "../../packages/contracts/src/analysis";
-import { validateGraphDocument, type GraphDocument } from "../../packages/contracts/src/graph";
-import { authHeaders } from "./auth-headers";
+import { validateGraphDocument, type GraphDocument, type GraphNode } from "../../packages/contracts/src/graph";
+import { getActiveTenantId } from "./auth-headers";
+import { appendAuditEvent } from "./audit";
 
-const defaultApiBase = "http://localhost:4010";
-
-function apiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? defaultApiBase;
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
-async function parseJsonOrThrow(response: Response) {
-  const payload = (await response.json()) as Record<string, unknown>;
-  if (!response.ok) {
-    throw new Error(String(payload.error ?? "request_failed"));
-  }
-  return payload;
+function makeFinding(input: {
+  ruleCode: string;
+  severity: FindingSeverity;
+  rationale: string;
+  nodeIds?: string[];
+  edgeIds?: string[];
+  remediation: Array<{ label: string; description: string; command: string; params?: Record<string, string> }>;
+}): ValidationFinding {
+  return {
+    id: generateUUID(),
+    ruleCode: input.ruleCode,
+    severity: input.severity,
+    rationale: input.rationale,
+    evidencePath: {
+      nodeIds: input.nodeIds ?? [],
+      edgeIds: input.edgeIds ?? [],
+    },
+    remediation: input.remediation.map((item) => ({
+      id: generateUUID(),
+      label: item.label,
+      description: item.description,
+      command: item.command,
+      params: item.params ?? {},
+    })),
+  };
 }
 
-function isScorecard(value: unknown): value is AnalysisScorecard {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
+function isServiceLike(node: GraphNode) {
+  const source = `${node.type} ${node.label}`.toLowerCase();
+  return /service|api|gateway|compute|worker|backend|auth|bff|function/.test(source);
+}
 
-  const candidate = value as Record<string, unknown>;
-  const fields = [
-    candidate.resilience,
-    candidate.security,
-    candidate.performance,
-    candidate.cost,
-    candidate.maintainability,
-    candidate.overall,
-  ];
-  return fields.every((field) => typeof field === "number" && Number.isFinite(field));
+function isDataLike(node: GraphNode) {
+  const source = `${node.type} ${node.label}`.toLowerCase();
+  return /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache|queue|bucket|storage/.test(
+    source,
+  );
+}
+
+function isSecurityBoundary(node: GraphNode) {
+  const source = `${node.type} ${node.label}`.toLowerCase();
+  return /gateway|load.?balancer|reverse proxy|cdn|firewall|waf|shield/.test(source);
+}
+
+function isObservability(node: GraphNode) {
+  const source = `${node.type} ${node.label}`.toLowerCase();
+  return /metrics|trace|observability|monitor|log|collector|apm/.test(source);
+}
+
+function isBackupLike(node: GraphNode) {
+  const source = `${node.type} ${node.label}`.toLowerCase();
+  return /replica|backup|snapshot|archive|warehouse|storage/.test(source);
+}
+
+function scoreFromFindings(findings: ValidationFinding[], graph: GraphDocument): AnalysisScorecard {
+  const penalties = findings.reduce(
+    (acc, finding) => {
+      if (finding.severity === "blocker") {
+        acc.blocker += 20;
+      } else if (finding.severity === "error") {
+        acc.error += 12;
+      } else if (finding.severity === "warn") {
+        acc.warn += 7;
+      } else {
+        acc.info += 2;
+      }
+      return acc;
+    },
+    { blocker: 0, error: 0, warn: 0, info: 0 },
+  );
+
+  const base = 85;
+  const graphComplexityPenalty = Math.max(0, graph.edges.length - graph.nodes.length) * 1.4;
+  const totalPenalty =
+    penalties.blocker + penalties.error + penalties.warn + penalties.info + graphComplexityPenalty;
+
+  const resilience = Math.max(0, Math.min(100, base - totalPenalty));
+  const security = Math.max(0, Math.min(100, base - penalties.blocker - penalties.error - penalties.warn * 0.8));
+  const performance = Math.max(0, Math.min(100, base - graphComplexityPenalty - penalties.warn * 0.6));
+  const cost = Math.max(0, Math.min(100, base - (graph.nodes.length * 0.8 + graph.edges.length * 0.4)));
+  const maintainability = Math.max(
+    0,
+    Math.min(100, base - graphComplexityPenalty * 0.7 - penalties.warn - penalties.error * 0.8),
+  );
+  const overall = Math.round((resilience + security + performance + cost + maintainability) / 5);
+
+  return {
+    resilience: Math.round(resilience),
+    security: Math.round(security),
+    performance: Math.round(performance),
+    cost: Math.round(cost),
+    maintainability: Math.round(maintainability),
+    overall,
+  };
 }
 
 export async function validateArchitectureAnalysis(input: {
@@ -42,39 +116,182 @@ export async function validateArchitectureAnalysis(input: {
   workspaceId: string;
   scenarioId?: string;
 }): Promise<{ reportId: string; findings: ValidationFinding[]; scorecard: AnalysisScorecard }> {
+  if (typeof window === "undefined") {
+    return {
+      reportId: "ssr-report",
+      findings: [],
+      scorecard: { resilience: 100, security: 100, performance: 100, cost: 100, maintainability: 100, overall: 100 },
+    };
+  }
+
   const graphValidation = validateGraphDocument(input.graph);
   if (!graphValidation.ok) {
     throw new Error(`invalid_graph_document:${graphValidation.errors.join(";")}`);
   }
 
-  const response = await fetch(`${apiBaseUrl()}/api/analysis/validate`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...authHeaders() },
-    body: JSON.stringify({
-      graph: input.graph,
-      workspaceId: input.workspaceId,
-      scenarioId: input.scenarioId,
-    }),
+  // Tenant Isolation check
+  const tenantId = getActiveTenantId();
+  const rawWorkspaces = window.localStorage.getItem("asd_sim_workspaces");
+  const workspaces = rawWorkspaces ? JSON.parse(rawWorkspaces) : [];
+  const workspace = workspaces.find((w: any) => w.id === input.workspaceId);
+  if (workspace && workspace.tenantId !== tenantId) {
+    throw new Error(`Security Exception: Access Denied to Workspace ${input.workspaceId} under Tenant ${tenantId}`);
+  }
+
+  const graph = input.graph;
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const incomingByNodeId = new Map<string, string[]>();
+
+  for (const edge of graph.edges) {
+    const current = incomingByNodeId.get(edge.targetId) ?? [];
+    current.push(edge.id);
+    incomingByNodeId.set(edge.targetId, current);
+  }
+
+  const findings: ValidationFinding[] = [];
+  const serviceNodes = graph.nodes.filter((node) => isServiceLike(node));
+  const dataNodes = graph.nodes.filter((node) => isDataLike(node));
+  const hasSecurityBoundary = graph.nodes.some((node) => isSecurityBoundary(node));
+  const hasObservabilityLayer = graph.nodes.some((node) => isObservability(node));
+  const hasBackupLayer = graph.nodes.some((node) => isBackupLike(node));
+
+  const publicService = serviceNodes.find((node) => (incomingByNodeId.get(node.id) ?? []).length === 0);
+  if (publicService && !hasSecurityBoundary) {
+    findings.push(
+      makeFinding({
+        ruleCode: "PUBLIC_INGRESS_WITHOUT_SHIELD",
+        severity: "warn",
+        rationale: `${publicService.label} is exposed without an ingress control layer.`,
+        nodeIds: [publicService.id],
+        remediation: [
+          {
+            label: "Add ingress boundary",
+            description: "Place an API gateway/load balancer/WAF in front of public services.",
+            command: "graph.addNode",
+            params: { suggestedType: "api_gateway" },
+          },
+        ],
+      }),
+    );
+  }
+
+  const directClientToDataEdge = graph.edges.find((edge) => {
+    const source = nodesById.get(edge.sourceId);
+    const target = nodesById.get(edge.targetId);
+    if (!source || !target) {
+      return false;
+    }
+    const sourceText = `${source.type} ${source.label}`.toLowerCase();
+    return /client|browser|mobile|frontend/.test(sourceText) && isDataLike(target);
   });
-  const payload = await parseJsonOrThrow(response);
 
-  const reportId = String(payload.reportId ?? "");
-  if (!reportId) {
-    throw new Error("invalid_analysis_payload:missing_report_id");
+  if (directClientToDataEdge) {
+    const source = nodesById.get(directClientToDataEdge.sourceId);
+    const target = nodesById.get(directClientToDataEdge.targetId);
+    findings.push(
+      makeFinding({
+        ruleCode: "DIRECT_CLIENT_TO_DATA",
+        severity: "blocker",
+        rationale: `${source?.label ?? "Client"} talks directly to ${target?.label ?? "data store"}. Route it through an API or queue boundary.`,
+        nodeIds: [directClientToDataEdge.sourceId, directClientToDataEdge.targetId],
+        edgeIds: [directClientToDataEdge.id],
+        remediation: [
+          {
+            label: "Insert service boundary",
+            description: "Add an application service between clients and stateful systems.",
+            command: "graph.insertNodeBetween",
+            params: { edgeId: directClientToDataEdge.id, suggestedType: "app_service" },
+          },
+        ],
+      }),
+    );
   }
 
-  const findingsRaw = Array.isArray(payload.findings) ? payload.findings : [];
-  if (!findingsRaw.every((finding) => isValidationFinding(finding))) {
-    throw new Error("invalid_analysis_payload:findings");
+  if (dataNodes.length > 0 && !hasBackupLayer) {
+    findings.push(
+      makeFinding({
+        ruleCode: "DATA_WITHOUT_BACKUP",
+        severity: "warn",
+        rationale: `${dataNodes[0].label} has stateful traffic but no visible backup or recovery layer.`,
+        nodeIds: [dataNodes[0].id],
+        remediation: [
+          {
+            label: "Add backup target",
+            description: "Model replication, backups, or archive storage for stateful nodes.",
+            command: "graph.addNode",
+            params: { suggestedType: "backup_storage" },
+          },
+        ],
+      }),
+    );
   }
 
-  if (!isScorecard(payload.scorecard)) {
-    throw new Error("invalid_analysis_payload:scorecard");
+  if (graph.nodes.length >= 4 && !hasObservabilityLayer) {
+    findings.push(
+      makeFinding({
+        ruleCode: "MISSING_OBSERVABILITY",
+        severity: "warn",
+        rationale: "The topology has critical paths but no metrics, tracing, or logging plane.",
+        remediation: [
+          {
+            label: "Add observability plane",
+            description: "Add metrics/log/trace components and route telemetry from core nodes.",
+            command: "graph.addNode",
+            params: { suggestedType: "observability_stack" },
+          },
+        ],
+      }),
+    );
   }
+
+  const publicApiNode = graph.nodes.find((node) =>
+    /api|gateway|auth|service|graphql|bff|backend|search/i.test(`${node.type} ${node.label}`),
+  );
+  const hasWaf = graph.nodes.some((node) => /waf|firewall|shield/i.test(`${node.type} ${node.label}`));
+  if (publicApiNode && !hasWaf) {
+    findings.push(
+      makeFinding({
+        ruleCode: "PUBLIC_API_WITHOUT_WAF",
+        severity: "warn",
+        rationale: "A public API or auth surface exists without a WAF or firewall control.",
+        nodeIds: [publicApiNode.id],
+        remediation: [
+          {
+            label: "Add WAF control",
+            description: "Model a WAF/firewall ahead of public ingress.",
+            command: "graph.addNode",
+            params: { suggestedType: "waf" },
+          },
+        ],
+      }),
+    );
+  }
+
+  const limitedFindings = findings.slice(0, 6);
+  const scorecard = scoreFromFindings(limitedFindings, graph);
+
+  const reportId = generateUUID();
+  const rawReports = window.localStorage.getItem("asd_sim_analysis");
+  const reports = rawReports ? JSON.parse(rawReports) : [];
+
+  const newReport = {
+    id: reportId,
+    workspaceId: input.workspaceId,
+    tenantId,
+    findings: limitedFindings,
+    scorecard,
+    createdAt: new Date().toISOString(),
+  };
+
+  reports.push(newReport);
+  window.localStorage.setItem("asd_sim_analysis", JSON.stringify(reports));
+
+  // Log audit event
+  appendAuditEvent("analysis.validate", { workspaceId: input.workspaceId, reportId, score: scorecard.overall });
 
   return {
     reportId,
-    findings: findingsRaw,
-    scorecard: payload.scorecard,
+    findings: limitedFindings,
+    scorecard,
   };
 }

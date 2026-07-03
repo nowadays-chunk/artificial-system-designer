@@ -210,6 +210,9 @@ export default function LandingPage() {
             <a className="opacity-70 transition hover:opacity-100" href="#stories">
               Stories
             </a>
+            <Link className="opacity-70 transition hover:opacity-100 font-semibold text-cyan-600 dark:text-cyan-400" href="/docs">
+              Docs
+            </Link>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -521,6 +524,9 @@ export default function LandingPage() {
             <a href="#stories" className="hover:text-cyan-500">
               Stories
             </a>
+            <Link href="/docs" className="hover:text-cyan-500 font-semibold text-cyan-600 dark:text-cyan-400">
+              Docs Portal
+            </Link>
           </div>
         </div>
         <div className="mx-auto mt-10 flex max-w-7xl flex-col gap-4 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
