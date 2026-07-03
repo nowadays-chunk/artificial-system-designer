@@ -231,7 +231,7 @@ export async function createSimulationRun(input: {
   profile: SimulationProfile;
   graph: GraphDocument;
   trafficRps: number;
-}): Promise<{ runId: string; status: "queued" | "running" }> {
+}): Promise<{ runId: string; status: "queued" | "running" | "completed" }> {
   if (typeof window === "undefined") {
     return { runId: "ssr-run", status: "running" };
   }
