@@ -81,15 +81,42 @@ function generateTickMetrics(input: {
     }
   });
 
+  let totalReplicas = 0;
+  let computeNodesCount = 0;
+  let totalRam = 0;
+  let totalIops = 0;
+  let dbCount = 0;
+
+  input.graph.nodes.forEach((n) => {
+    const isCompute = /service|api|gateway|compute|worker|backend|auth|bff|function/i.test(`${n.type} ${n.label}`);
+    const isStateful = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${n.type} ${n.label}`);
+    if (isCompute) {
+      computeNodesCount++;
+      totalReplicas += n.settings?.replicas ?? 1;
+    } else if (isStateful) {
+      dbCount++;
+      totalRam += n.settings?.ram ?? 4;
+      totalIops += n.settings?.iops ?? 1000;
+    }
+  });
+
+  const computeScaleFactor = computeNodesCount > 0 ? (totalReplicas / computeNodesCount) : 1;
+  const averageRam = dbCount > 0 ? (totalRam / dbCount) : 4;
+  const averageIops = dbCount > 0 ? (totalIops / dbCount) : 1000;
+
+  const ramLatencyFactor = Math.max(0.4, 1 - (averageRam - 4) * 0.005);
+  const iopsSaturationFactor = Math.max(0.3, 1 - (averageIops - 1000) * 0.0001);
+
   const profile = profileMultiplier(input.profile);
   const jitter = (input.prng() - 0.5) * 0.12;
   const pulse = (Math.sin(input.tick / 2.3) + 1) / 2;
   const complexity = clamp(1 + edgeCount / Math.max(1, nodeCount * 2.2), 1, 2.2);
 
-  let saturationBase = (input.baseTrafficRps / Math.max(1, nodeCount * 9500)) * 100;
+  let saturationBase = (input.baseTrafficRps / Math.max(1, nodeCount * 9500 * computeScaleFactor)) * 100;
   if (hasCdn) saturationBase *= 0.72;
   if (hasCache) saturationBase *= 0.85;
   if (!hasDbReplica && dbNodes.length > 0) saturationBase *= 1.22;
+  saturationBase *= iopsSaturationFactor;
 
   const saturationPercent = Math.round(clamp(saturationBase * profile.load * (0.95 + jitter * 0.5), 2, 100));
 
@@ -97,6 +124,7 @@ function generateTickMetrics(input: {
   if (hasCdn) baseLatency *= 0.75;
   if (hasCache) baseLatency *= 0.60;
   if (lambdaToDbDirect) baseLatency += 180;
+  baseLatency *= ramLatencyFactor;
 
   const latencyMsP50 = Math.round(clamp(baseLatency, 5, 900) * profile.latency);
   const latencyMsP95 = Math.round(clamp(latencyMsP50 * (1.5 + complexity * 0.45), 20, 1800));
@@ -109,8 +137,21 @@ function generateTickMetrics(input: {
 
   const errorRatePercent = Number(clamp(errorRateBase * profile.error + jitter * 2.5, 0, 45).toFixed(2));
 
+  let provisionedCost = 0;
+  input.graph.nodes.forEach((n) => {
+    const isCompute = /service|api|gateway|compute|worker|backend|auth|bff|function/i.test(`${n.type} ${n.label}`);
+    const isStateful = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${n.type} ${n.label}`);
+    if (isCompute) {
+      provisionedCost += ((n.settings?.replicas ?? 1) * 15) / 730;
+    } else if (isStateful) {
+      provisionedCost += (30 + ((n.settings?.ram ?? 4) * 4) + ((n.settings?.iops ?? 1000) * 0.02)) / 730;
+    } else {
+      provisionedCost += 10 / 730;
+    }
+  });
+
   const estimatedCostPerHourUsd = Number(
-    (nodeCount * 1.9 + edgeCount * 0.34 + throughputRps / 12000 + saturationPercent * 0.07 + (hasWaf ? 0.85 : 0)).toFixed(2),
+    (provisionedCost + edgeCount * 0.34 + throughputRps / 12000 + saturationPercent * 0.07 + (hasWaf ? 0.85 : 0)).toFixed(2),
   );
 
   return {

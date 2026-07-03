@@ -257,7 +257,7 @@ export default function ModelerPage() {
   const [diffVersionId, setDiffVersionId] = useState<string | null>(null);
   const [diffResults, setDiffResults] = useState<{ type: "add" | "delete" | "modify"; label: string; detail: string }[]>([]);
   const [workspaceVersions, setWorkspaceVersions] = useState<any[]>([]);
-  const [docsTab, setDocsTab] = useState<"overview" | "standards">("overview");
+  const [docsTab, setDocsTab] = useState<"overview" | "standards" | "tuning">("overview");
   const [selectedFindingKey, setSelectedFindingKey] = useState<string | null>(null);
   const [scrubIndex, setScrubIndex] = useState<number>(-1);
   const [diffBaseGraph, setDiffBaseGraph] = useState<GraphDocument | null>(null);
@@ -437,6 +437,37 @@ export default function ModelerPage() {
     selfHostedPowerBudget,
     simulationTargets,
   ]);
+
+  const selectedNode = useMemo(() => {
+    if (selectedElementInfo?.kind !== "node") return null;
+    return latestGraph?.nodes.find((n) => n.id === selectedElementInfo.id) || null;
+  }, [latestGraph, selectedElementInfo]);
+
+  const nodeTuningInfo = useMemo(() => {
+    if (!selectedNode) return null;
+    const isCompute = /service|api|gateway|compute|worker|backend|auth|bff|function/i.test(`${selectedNode.type} ${selectedNode.label}`);
+    const isStateful = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${selectedNode.type} ${selectedNode.label}`);
+
+    const replicas = selectedNode.settings?.replicas ?? 1;
+    const ram = selectedNode.settings?.ram ?? 4;
+    const iops = selectedNode.settings?.iops ?? 1000;
+
+    let estimatedCost = 15;
+    if (isCompute) {
+      estimatedCost = replicas * 15;
+    } else if (isStateful) {
+      estimatedCost = 30 + (ram * 4) + (iops * 0.02);
+    }
+
+    return {
+      isCompute,
+      isStateful,
+      replicas,
+      ram,
+      iops,
+      estimatedCost,
+    };
+  }, [selectedNode]);
 
   const handleNewDiagram = useCallback(() => {
     setNewDiagramSignal(Date.now());
@@ -1452,7 +1483,7 @@ ${val.detail}`).join("\n\n")}
                   </div>
 
                   {/* Tabs */}
-                  <div className="flex border-b border-line">
+                  <div className="flex border-b border-line gap-1">
                     <button
                       type="button"
                       onClick={() => setDocsTab("overview")}
@@ -1469,11 +1500,20 @@ ${val.detail}`).join("\n\n")}
                         docsTab === "standards" ? "border-cyan-500 text-cyan-600 dark:text-cyan-400" : "border-transparent text-slate-400 hover:text-slate-200"
                       }`}
                     >
-                      Design Standards
+                      Standards
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDocsTab("tuning")}
+                      className={`flex-1 pb-2 text-xs font-semibold border-b-2 transition ${
+                        docsTab === "tuning" ? "border-cyan-500 text-cyan-600 dark:text-cyan-400" : "border-transparent text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Tuning
                     </button>
                   </div>
 
-                  {docsTab === "overview" ? (
+                  {docsTab === "overview" && (
                     <div className="space-y-3 pt-1">
                       <p className="leading-6">{selectedElementInfo.focus}</p>
                       <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1488,12 +1528,16 @@ ${val.detail}`).join("\n\n")}
                       {/* Handbook Usage details */}
                       {COMPONENT_DESIGN_HANDBOOK[selectedElementInfo.type] && (
                         <div className="mt-3 pt-3 border-t border-line space-y-1">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Architecture Role:</p>
-                          <p className="text-xs leading-5">{COMPONENT_DESIGN_HANDBOOK[selectedElementInfo.type].usage}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Default Specs:</p>
+                          <p className="text-xs text-slate-500">
+                            Scale bounds: {COMPONENT_DESIGN_HANDBOOK[selectedElementInfo.type].scaleLimit}
+                          </p>
                         </div>
                       )}
                     </div>
-                  ) : (
+                  )}
+
+                  {docsTab === "standards" && (
                     <div className="space-y-3 pt-1">
                       {COMPONENT_DESIGN_HANDBOOK[selectedElementInfo.type] ? (
                         <>
@@ -1517,6 +1561,105 @@ ${val.detail}`).join("\n\n")}
                         </>
                       ) : (
                         <p className="text-xs text-slate-500">No specific design standards catalogued for this node type.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {docsTab === "tuning" && selectedNode && nodeTuningInfo && (
+                    <div className="space-y-4 pt-1 text-xs text-slate-600 dark:text-slate-300">
+                      <div className="rounded-xl bg-slate-50 dark:bg-slate-900 border border-line p-3 space-y-1.5">
+                        <p className="font-semibold text-slate-900 dark:text-slate-100 uppercase text-[9px] tracking-wide text-left">Capacity & Cost Projections</p>
+                        <div className="flex justify-between items-center text-sm pt-1">
+                          <span className="font-bold text-cyan-600 dark:text-cyan-400">Est. Cost:</span>
+                          <span className="font-extrabold text-foreground">${nodeTuningInfo.estimatedCost.toFixed(2)}/mo</span>
+                        </div>
+                        {nodeTuningInfo.isCompute && (
+                          <p className="text-[10px] text-slate-500 leading-4">
+                            Compute scale factor: {nodeTuningInfo.replicas}x replicas. Load capacity: {nodeTuningInfo.replicas * 1500} req/s peak.
+                          </p>
+                        )}
+                        {nodeTuningInfo.isStateful && (
+                          <p className="text-[10px] text-slate-500 leading-4">
+                            Database performance tier: {nodeTuningInfo.ram}GB Memory. Disk: {nodeTuningInfo.iops} Provisioned IOPS.
+                          </p>
+                        )}
+                      </div>
+
+                      {nodeTuningInfo.isCompute && (
+                        <div className="space-y-2">
+                          <div className="flex justify-between font-semibold">
+                            <span>Instance Replicas:</span>
+                            <span className="text-cyan-500">{nodeTuningInfo.replicas} instances</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="1"
+                            max="12"
+                            value={nodeTuningInfo.replicas}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value);
+                              if (latestGraph && selectedNode) {
+                                const nextNodes = latestGraph.nodes.map(n => n.id === selectedNode.id ? { ...n, settings: { ...n.settings, replicas: val } } : n);
+                                setLoadedGraphDocument({ ...latestGraph, nodes: nextNodes });
+                              }
+                            }}
+                            className="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                          />
+                          <p className="text-[10px] text-slate-400 leading-4">Adjust compute scaling zones to distribute request spikes.</p>
+                        </div>
+                      )}
+
+                      {nodeTuningInfo.isStateful && (
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <div className="flex justify-between font-semibold">
+                              <span>Memory Size:</span>
+                              <span className="text-cyan-500">{nodeTuningInfo.ram} GB RAM</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="2"
+                              max="128"
+                              step="2"
+                              value={nodeTuningInfo.ram}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                if (latestGraph && selectedNode) {
+                                  const nextNodes = latestGraph.nodes.map(n => n.id === selectedNode.id ? { ...n, settings: { ...n.settings, ram: val } } : n);
+                                  setLoadedGraphDocument({ ...latestGraph, nodes: nextNodes });
+                                }
+                              }}
+                              className="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex justify-between font-semibold">
+                              <span>Provisioned Disk IOPS:</span>
+                              <span className="text-cyan-500">{nodeTuningInfo.iops} IOPS</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="500"
+                              max="10000"
+                              step="500"
+                              value={nodeTuningInfo.iops}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                if (latestGraph && selectedNode) {
+                                  const nextNodes = latestGraph.nodes.map(n => n.id === selectedNode.id ? { ...n, settings: { ...n.settings, iops: val } } : n);
+                                  setLoadedGraphDocument({ ...latestGraph, nodes: nextNodes });
+                                }
+                              }}
+                              className="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-4">Increasing IOPS and RAM memory cache directly offsets DB response saturation limits.</p>
+                        </div>
+                      )}
+
+                      {!nodeTuningInfo.isCompute && !nodeTuningInfo.isStateful && (
+                        <p className="text-slate-400 italic text-center py-4">No performance parameters available for this category.</p>
                       )}
                     </div>
                   )}
