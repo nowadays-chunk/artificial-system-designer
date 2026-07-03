@@ -494,6 +494,74 @@ export default function ModelerPage() {
     };
   }, [selectedNode]);
 
+  const optimizationRecommendations = useMemo(() => {
+    if (!latestGraph) return [];
+    const items: Array<{
+      id: string;
+      title: string;
+      description: string;
+      impact: "cost" | "performance" | "resilience";
+      actionLabel: string;
+      apply: () => void;
+    }> = [];
+
+    latestGraph.nodes.forEach((node) => {
+      const isCompute = /service|api|gateway|compute|worker|backend|auth|bff|function/i.test(`${node.type} ${node.label}`);
+      if (isCompute) {
+        const reps = typeof node.settings?.replicas === "number" ? node.settings.replicas : 1;
+        if (reps > 4 && (analysisSummary?.simulationSnapshot?.throughput ?? 0) < 6000) {
+          items.push({
+            id: `over-compute-${node.id}`,
+            title: `Downscale ${node.label} replicas`,
+            description: `Replicas count is at ${reps} but traffic is low. Scale down to 2 replicas to save up to $${(reps - 2) * 15}/mo.`,
+            impact: "cost",
+            actionLabel: "Scale to 2 replicas",
+            apply: () => {
+              const nextNodes = latestGraph.nodes.map(n => n.id === node.id ? { ...n, settings: { ...n.settings, replicas: 2 } } : n);
+              setLoadedGraphDocument({ ...latestGraph, nodes: nextNodes });
+            }
+          });
+        }
+      }
+
+      const isDb = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${node.type} ${node.label}`);
+      if (isDb) {
+        const ram = typeof node.settings?.ram === "number" ? node.settings.ram : 4;
+        const saturation = analysisSummary?.simulationSnapshot?.saturation ?? 0;
+        if (ram <= 8 && saturation > 70) {
+          items.push({
+            id: `under-db-${node.id}`,
+            title: `Upscale Database RAM size`,
+            description: `Database memory is at ${ram}GB while workload saturation is hot (${Math.round(saturation)}%). Increase to 32GB to drop queue contention.`,
+            impact: "performance",
+            actionLabel: "Set to 32GB RAM",
+            apply: () => {
+              const nextNodes = latestGraph.nodes.map(n => n.id === node.id ? { ...n, settings: { ...n.settings, ram: 32 } } : n);
+              setLoadedGraphDocument({ ...latestGraph, nodes: nextNodes });
+            }
+          });
+        }
+
+        const iops = typeof node.settings?.iops === "number" ? node.settings.iops : 1000;
+        if (iops <= 2000 && saturation > 60) {
+          items.push({
+            id: `low-iops-${node.id}`,
+            title: `Raise disk IOPS on Database`,
+            description: `Provisioned IOPS limits are low (${iops} IOPS). Raise to 5000 IOPS to support higher peak QPS load capacities.`,
+            impact: "performance",
+            actionLabel: "Set to 5000 IOPS",
+            apply: () => {
+              const nextNodes = latestGraph.nodes.map(n => n.id === node.id ? { ...n, settings: { ...n.settings, iops: 5000 } } : n);
+              setLoadedGraphDocument({ ...latestGraph, nodes: nextNodes });
+            }
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [latestGraph, analysisSummary]);
+
   const handleNewDiagram = useCallback(() => {
     setNewDiagramSignal(Date.now());
     setSelectedElementInfo(null);
@@ -2189,25 +2257,77 @@ ${val.detail}`).join("\n\n")}
               </div>
             </section>
 
-            <section className="mt-6 rounded-2xl border border-line bg-panel px-5 py-5">
-              <h3 className="text-lg font-semibold">Next actions</h3>
-              <ol className="mt-3 space-y-2 pl-5 text-sm text-slate-600">
-                {[
-                  validationInsights.length
-                    ? `Resolve ${validationInsights.length} validation issue${validationInsights.length === 1 ? "" : "s"} to improve the overall score.`
-                    : "Validation rules are satisfied; introduce failure scenarios or new traffic mixes to stretch the topology.",
-                  simulationEvents.length
-                    ? `Investigate ${Math.min(simulationEvents.length, 3)} simulator event${simulationEvents.length === 1 ? "" : "s"} for anomalies.`
-                    : "Step the simulation (Ctrl+Enter) to surface runtime events and anomalies.",
-                  environmentMode === "cloud"
-                    ? `Target provider: ${selectedCloudProvider} (${cloudRegion}).`
-                    : `Self-hosted lab: ${selfHostedRegion} · Net ${selfHostedNetworkBudget}, Power ${selfHostedPowerBudget}.`,
-                  "Save the diagram locally or push to the remote workspace to lock the current insights.",
-                ].map((action, index) => (
-                  <li key={action + index}>{action}</li>
-                ))}
-              </ol>
-            </section>
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              <section className="rounded-2xl border border-line bg-panel px-5 py-5">
+                <h3 className="text-lg font-semibold">Next actions</h3>
+                <ol className="mt-3 space-y-2 pl-5 text-sm text-slate-600">
+                  {[
+                    validationInsights.length
+                      ? `Resolve ${validationInsights.length} validation issue${validationInsights.length === 1 ? "" : "s"} to improve the overall score.`
+                      : "Validation rules are satisfied; introduce failure scenarios or new traffic mixes to stretch the topology.",
+                    simulationEvents.length
+                      ? `Investigate ${Math.min(simulationEvents.length, 3)} simulator event${simulationEvents.length === 1 ? "" : "s"} for anomalies.`
+                      : "Step the simulation (Ctrl+Enter) to surface runtime events and anomalies.",
+                    environmentMode === "cloud"
+                      ? `Target provider: ${selectedCloudProvider} (${cloudRegion}).`
+                      : `Self-hosted lab: ${selfHostedRegion} · Net ${selfHostedNetworkBudget}, Power ${selfHostedPowerBudget}.`,
+                    "Save the diagram locally or push to the remote workspace to lock the current insights.",
+                  ].map((action, index) => (
+                    <li key={action + index}>{action}</li>
+                  ))}
+                </ol>
+              </section>
+
+              <section className="rounded-2xl border border-line bg-panel px-5 py-5 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold flex items-center gap-1.5 text-foreground select-none">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse" />
+                    TCO & Performance Optimization Advisor
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 select-none">Tailored configurations to reduce costs or offset bottlenecks.</p>
+                </div>
+
+                <div className="mt-4 flex-1 space-y-2.5 max-h-48 overflow-y-auto pr-1">
+                  {optimizationRecommendations.map((rec) => {
+                    let impactBadge = "bg-cyan-600/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400";
+                    if (rec.impact === "cost") impactBadge = "bg-emerald-600/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400";
+                    else if (rec.impact === "performance") impactBadge = "bg-rose-600/10 border-rose-500/30 text-rose-600 dark:text-rose-400";
+
+                    return (
+                      <div key={rec.id} className="rounded-xl border border-slate-200 bg-white/60 p-3 flex flex-col gap-2 shadow-sm text-left font-sans">
+                        <div className="flex justify-between items-center select-none">
+                          <h4 className="text-xs font-bold text-slate-900">{rec.title}</h4>
+                          <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full border ${impactBadge}`}>
+                            {rec.impact}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">{rec.description}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            rec.apply();
+                            const timeStr = new Date().toLocaleTimeString();
+                            setConsoleLogs(l => [...l, {
+                              timestamp: timeStr,
+                              level: "AUDIT",
+                              message: `Applied Optimization: ${rec.title}. Settings updated reactively.`,
+                            }]);
+                          }}
+                          className="self-end rounded bg-slate-900 hover:bg-slate-800 text-[10px] text-white font-bold px-2.5 py-1.5 transition shadow"
+                        >
+                          {rec.actionLabel}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {optimizationRecommendations.length === 0 && (
+                    <div className="text-center text-slate-500 py-8 italic select-none text-xs">
+                      No cost or performance anomalies detected. Topologies are running within optimal parameters.
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
           </div>
         </div>
       ) : null}
