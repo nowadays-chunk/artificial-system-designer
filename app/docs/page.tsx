@@ -606,7 +606,7 @@ export default function DocsPage() {
                     <div className="p-3 rounded-2xl bg-background/50 border border-line text-xs space-y-2 leading-relaxed">
                       <p className="font-semibold text-cyan-600 dark:text-cyan-400">Block Hash Equation:</p>
                       <div className="bg-panel px-2 py-1.5 rounded font-mono text-[0.65rem]">
-                        H_i = \text{Hash}( \text{tenantId} \parallel \text{actorId} \parallel \text{role} \parallel \text{action} \parallel \text{timestamp} \parallel \text{payload} \parallel H_{i-1} )
+                        {"H_i = \\text{Hash}( \\text{tenantId} \\parallel \\text{actorId} \\parallel \\text{role} \\parallel \\text{action} \\parallel \\text{timestamp} \\parallel \\text{payload} \\parallel H_{i-1} )"}
                       </div>
                       <p className="text-[0.7rem] text-slate-500">
                         If any past block is modified (e.g. payload edit), re-verifying the chain detects the hash mismatch instantly and alerts the governance system.

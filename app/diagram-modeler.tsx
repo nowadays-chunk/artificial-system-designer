@@ -2086,12 +2086,12 @@ export function DiagramModeler({
 
     const rect = canvasRef.current.getBoundingClientRect();
     const nextX = clamp(
-      event.clientX - rect.left - dragState.offsetX,
+      (event.clientX - rect.left) / zoomScale - dragState.offsetX,
       24,
       CANVAS_WIDTH - NODE_WIDTH - 24,
     );
     const nextY = clamp(
-      event.clientY - rect.top - dragState.offsetY,
+      (event.clientY - rect.top) / zoomScale - dragState.offsetY,
       24,
       CANVAS_HEIGHT - NODE_HEIGHT - 24,
     );
@@ -2290,6 +2290,7 @@ export function DiagramModeler({
     undo,
     updateNode,
     selectedNodeIds,
+    zoomScale,
   ]);
 
 
@@ -2335,8 +2336,8 @@ export function DiagramModeler({
 
     setDragState({
       nodeId,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
+      offsetX: (event.clientX - rect.left) / zoomScale,
+      offsetY: (event.clientY - rect.top) / zoomScale,
       initialPositions,
     });
   };
@@ -2391,12 +2392,12 @@ export function DiagramModeler({
     const item = JSON.parse(raw) as PaletteItem;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = clamp(
-      event.clientX - rect.left - NODE_WIDTH / 2,
+      (event.clientX - rect.left) / zoomScale - NODE_WIDTH / 2,
       24,
       CANVAS_WIDTH - NODE_WIDTH - 24,
     );
     const y = clamp(
-      event.clientY - rect.top - NODE_HEIGHT / 2,
+      (event.clientY - rect.top) / zoomScale - NODE_HEIGHT / 2,
       24,
       CANVAS_HEIGHT - NODE_HEIGHT - 24,
     );
@@ -2880,7 +2881,7 @@ export function DiagramModeler({
             <div
               ref={canvasRef}
               className="network-grid relative overflow-hidden rounded-[1.35rem]"
-              style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+              style={{ width: CANVAS_WIDTH * zoomScale, height: CANVAS_HEIGHT * zoomScale }}
               role="region"
               tabIndex={0}
               aria-label="Architecture canvas"
@@ -2892,6 +2893,15 @@ export function DiagramModeler({
               <p id="modeler-canvas-shortcuts" className="sr-only">
                 Canvas shortcuts: {canvasShortcuts.map((shortcut) => `${shortcut.label}: ${shortcut.keys}`).join(", ")}.
               </p>
+              <div 
+                style={{ 
+                  transform: `scale(${zoomScale})`, 
+                  transformOrigin: "top left", 
+                  width: CANVAS_WIDTH, 
+                  height: CANVAS_HEIGHT 
+                }}
+                className="absolute inset-0"
+              >
               <svg
                 className="absolute inset-0 h-full w-full"
                 width={CANVAS_WIDTH}
@@ -3169,8 +3179,9 @@ export function DiagramModeler({
                   </div>
                 </div>
               ) : null}
+            </div>
 
-              {/* Floating Canvas Overlay Controls */}
+            {/* Floating Canvas Overlay Controls */}
               <div className="absolute top-4 left-4 z-30 flex items-center gap-2 rounded-2xl border border-line bg-panel/90 backdrop-blur px-3 py-2 shadow-lg">
                 <button
                   type="button"
@@ -3234,6 +3245,33 @@ export function DiagramModeler({
                 >
                   Snap: {snapToGridEnabled ? "ON" : "OFF"}
                 </button>
+                <div className="w-[1px] h-4 bg-line" />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setZoomScale((z) => Math.max(0.5, Number((z - 0.1).toFixed(1))))}
+                    className="rounded-lg border border-line bg-background/50 px-2 py-0.5 text-xs font-bold hover:border-cyan-500 transition text-foreground"
+                    title="Zoom Out (Ctrl+-)"
+                  >
+                    -
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoomScale(1.0)}
+                    className="text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-cyan-500 transition px-1 select-none min-w-[32px] text-center"
+                    title="Reset Zoom (Ctrl+0)"
+                  >
+                    {Math.round(zoomScale * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoomScale((z) => Math.min(2.0, Number((z + 0.1).toFixed(1))))}
+                    className="rounded-lg border border-line bg-background/50 px-2 py-0.5 text-xs font-bold hover:border-cyan-500 transition text-foreground"
+                    title="Zoom In (Ctrl++)"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
 
               {/* Command Palette Modal */}
