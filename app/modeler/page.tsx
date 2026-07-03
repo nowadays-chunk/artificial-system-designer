@@ -736,10 +736,10 @@ Cloud Provider Target: ${selectedCloudProvider} (Region: ${cloudRegion})
 ## Executive Summary
 This report summarizes the automated validation check for the system design schematic.
 
-- **Resilience Score**: ${analysisSummary?.resilience ?? 100} / 100
-- **Security Score**: ${analysisSummary?.security ?? 100} / 100
-- **Performance Score**: ${analysisSummary?.performance ?? 100} / 100
-- **Cost Efficiency Score**: ${analysisSummary?.costEfficiency ?? 100} / 100
+- **Resilience Score**: ${analysisSummary?.simulationSnapshot?.resilience ?? 100} / 100
+- **Security Score**: ${analysisSummary?.simulationSnapshot?.security ?? 100} / 100
+- **Performance Score**: ${analysisSummary?.simulationSnapshot?.performance ?? 100} / 100
+- **Cost Efficiency Score**: ${analysisSummary?.simulationSnapshot?.costEfficiency ?? 100} / 100
 
 ## Components Inventory
 ${latestGraph.nodes.map((node) => `- **${node.label}** (${node.type}) - Provider: ${node.provider || "Default"}`).join("\n")}
