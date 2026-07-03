@@ -184,9 +184,14 @@ const CHECKLIST_SECTIONS = [
 
 export default function DocsPage() {
   const { theme, toggleTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSection, setActiveSection] = useState("guide");
   const [completedItems, setCompletedItems] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Load checklist progress from localStorage
   useEffect(() => {
@@ -267,7 +272,11 @@ export default function DocsPage() {
             className="rounded-full border border-line p-2.5 transition hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="Toggle theme"
           >
-            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            {mounted ? (
+              theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />
+            ) : (
+              <div className="h-4 w-4" />
+            )}
           </button>
         </div>
       </header>
