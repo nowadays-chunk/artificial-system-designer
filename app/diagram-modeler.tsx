@@ -1447,6 +1447,7 @@ export function DiagramModeler({
   onAnalysisSummaryUpdate,
   scenarioRefreshSignal,
   initialGraphDocument = null,
+  diffBaseGraphDocument = null,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1463,6 +1464,7 @@ export function DiagramModeler({
   onAnalysisSummaryUpdate?: (summary: DiagramAnalysisSummary) => void;
   scenarioRefreshSignal?: number | null;
   initialGraphDocument?: GraphDocument | null;
+  diffBaseGraphDocument?: GraphDocument | null;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -1541,6 +1543,26 @@ export function DiagramModeler({
   const [snapToGridEnabled, setSnapToGridEnabled] = useState(true);
   const [alignmentGuides, setAlignmentGuides] = useState<{ x?: number; y?: number } | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
+
+  const diffNodes = useMemo(() => {
+    if (!diffBaseGraphDocument) {
+      return { addedIds: new Set<string>(), deletedNodes: [] as typeof nodes };
+    }
+
+    const currentIds = new Set(nodes.map((n) => n.id));
+    const baseIds = new Set(diffBaseGraphDocument.nodes.map((n) => n.id));
+
+    const addedIds = new Set<string>();
+    nodes.forEach((n) => {
+      if (!baseIds.has(n.id)) {
+        addedIds.add(n.id);
+      }
+    });
+
+    const deletedNodes = diffBaseGraphDocument.nodes.filter((n) => !currentIds.has(n.id));
+
+    return { addedIds, deletedNodes };
+  }, [nodes, diffBaseGraphDocument]);
 
   const initialGraphDocRef = useRef<string | null>(null);
 
@@ -3046,14 +3068,19 @@ export function DiagramModeler({
                 );
                 const hasWarning = nodeFindings.length > 0;
 
+                const isAdded = diffNodes.addedIds.has(node.id);
                 const cardStyle: CSSProperties = {
                   left: node.x,
                   top: node.y,
                   width: node.width,
                   height: node.height,
-                  borderColor: isSelected ? theme.accent : tone.border,
-                  background: `linear-gradient(145deg, ${theme.surface}, rgba(10, 16, 30, 0.92))`,
-                  boxShadow: isSelected ? `0 20px 55px ${theme.shadow}` : tone.glow,
+                  borderColor: isAdded ? "rgba(16, 185, 129, 0.8)" : (isSelected ? theme.accent : tone.border),
+                  background: isAdded
+                    ? `linear-gradient(145deg, rgba(6, 78, 59, 0.45), rgba(10, 16, 30, 0.95))`
+                    : `linear-gradient(145deg, ${theme.surface}, rgba(10, 16, 30, 0.92))`,
+                  boxShadow: isAdded
+                    ? `0 0 20px rgba(16, 185, 129, 0.3)`
+                    : (isSelected ? `0 20px 55px ${theme.shadow}` : tone.glow),
                 };
 
                 return (
@@ -3071,9 +3098,14 @@ export function DiagramModeler({
                     className="absolute overflow-visible rounded-[1.35rem] border px-4 py-3 text-left text-white transition duration-150 hover:-translate-y-0.5"
                     style={cardStyle}
                   >
+                    {isAdded && (
+                      <div className="absolute -top-3.5 left-4 px-2 py-0.5 rounded-full bg-emerald-500 border border-emerald-400 text-[8px] font-bold tracking-wider text-white uppercase shadow-lg select-none z-10">
+                        [+] New in Draft
+                      </div>
+                    )}
                     <div
                       className="absolute inset-x-0 top-0 h-1.5 rounded-t-[1.35rem]"
-                      style={{ backgroundColor: theme.accent }}
+                      style={{ backgroundColor: isAdded ? "#10b981" : theme.accent }}
                     />
                     
                     {/* Canvas Alert Badge Warning Indicator */}
@@ -3159,6 +3191,50 @@ export function DiagramModeler({
                       </div>
                     </div>
                   </button>
+                );
+              })}
+
+              {/* Deleted (Ghost) Nodes */}
+              {diffNodes.deletedNodes.map((node) => {
+                const theme = getCategoryTheme(node.category);
+                const ghostStyle: CSSProperties = {
+                  left: node.x,
+                  top: node.y,
+                  width: node.width,
+                  height: node.height,
+                  borderColor: "rgba(239, 68, 68, 0.45)",
+                  background: "linear-gradient(145deg, rgba(127, 29, 29, 0.35), rgba(10, 16, 30, 0.95))",
+                  borderStyle: "dashed",
+                  opacity: 0.5,
+                  pointerEvents: "none",
+                };
+
+                return (
+                  <div
+                    key={`ghost-${node.id}`}
+                    className="absolute overflow-visible rounded-[1.35rem] border px-4 py-3 text-left text-white/60 select-none"
+                    style={ghostStyle}
+                  >
+                    <div className="absolute -top-3.5 left-4 px-2 py-0.5 rounded-full bg-rose-600/90 border border-rose-500/50 text-[8px] font-bold tracking-wider text-white uppercase shadow-lg z-10">
+                      [-] Deleted
+                    </div>
+                    
+                    <div className="relative flex h-full flex-col">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold leading-5 text-red-200/70 line-through">
+                            {node.label}
+                          </p>
+                          <p className="mt-1 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-red-400/40">
+                            {titleFromType(node.type)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-auto flex items-end justify-between gap-3 text-red-400/30 text-[10px]">
+                        <span>Removed from workspace</span>
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
 

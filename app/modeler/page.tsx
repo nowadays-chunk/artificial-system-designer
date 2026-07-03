@@ -259,6 +259,8 @@ export default function ModelerPage() {
   const [workspaceVersions, setWorkspaceVersions] = useState<any[]>([]);
   const [docsTab, setDocsTab] = useState<"overview" | "standards">("overview");
   const [selectedFindingKey, setSelectedFindingKey] = useState<string | null>(null);
+  const [scrubIndex, setScrubIndex] = useState<number>(-1);
+  const [diffBaseGraph, setDiffBaseGraph] = useState<GraphDocument | null>(null);
 
   const handleCompare = (versionId: string, versionGraph: GraphDocument) => {
     if (diffVersionId === versionId) {
@@ -1339,6 +1341,7 @@ ${val.detail}`).join("\n\n")}
               onPendingConnectionConsumed={() => setConnectionStarterNodeId(null)}
               scenarioRefreshSignal={scenarioRefreshSignal}
               initialGraphDocument={loadedGraphDocument}
+              diffBaseGraphDocument={diffBaseGraph}
             />
         </main>
 
@@ -1473,6 +1476,37 @@ ${val.detail}`).join("\n\n")}
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {/* Range Scrubber Slider */}
+                  <div className="rounded-2xl border border-line bg-background/70 p-4 space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-400">Time-Travel Scrubber</span>
+                      <span className="text-[10px] bg-cyan-600/15 border border-cyan-500/30 px-2 py-0.5 rounded-full text-cyan-600 dark:text-cyan-400 font-bold">
+                        {scrubIndex === -1 ? "LIVE Draft" : `V#${workspaceVersions[workspaceVersions.length - 1 - scrubIndex]?.versionNumber}`}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="-1"
+                      max={workspaceVersions.length - 1}
+                      value={scrubIndex}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        setScrubIndex(val);
+                        if (val === -1) {
+                          setDiffBaseGraph(null);
+                        } else {
+                          const idxInArray = workspaceVersions.length - 1 - val;
+                          const targetVersion = workspaceVersions[idxInArray];
+                          setDiffBaseGraph(targetVersion?.graph || null);
+                        }
+                      }}
+                      className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500 focus:outline-none"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-400 font-semibold select-none">
+                      <span>Oldest</span>
+                      <span>Live Draft</span>
+                    </div>
+                  </div>
                   {workspaceVersions.map((ver) => (
                     <div 
                       key={ver.id}
