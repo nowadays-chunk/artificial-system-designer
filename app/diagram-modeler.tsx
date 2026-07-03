@@ -1450,6 +1450,7 @@ export function DiagramModeler({
   diffBaseGraphDocument = null,
   batchRemediations = null,
   onBatchRemediationsApplied,
+  chaosInjections = [],
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1469,6 +1470,7 @@ export function DiagramModeler({
   diffBaseGraphDocument?: GraphDocument | null;
   batchRemediations?: any[] | null;
   onBatchRemediationsApplied?: () => void;
+  chaosInjections?: string[];
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -2070,6 +2072,7 @@ export function DiagramModeler({
           profile: "normal",
           graph: graphDocument,
           trafficRps,
+          chaos: chaosInjections,
         });
         const run = await getSimulationRun(created.runId);
         if (!active) {

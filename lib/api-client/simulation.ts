@@ -60,6 +60,7 @@ function generateTickMetrics(input: {
   graph: GraphDocument;
   profile: SimulationProfile;
   prng: () => number;
+  chaos?: string[];
 }): SimulationMetrics {
   const nodeCount = input.graph.nodes.length;
   const edgeCount = input.graph.edges.length;
@@ -115,11 +116,17 @@ function generateTickMetrics(input: {
   const pulse = (Math.sin(input.tick / 2.3) + 1) / 2;
   const complexity = clamp(1 + edgeCount / Math.max(1, nodeCount * 2.2), 1, 2.2);
 
+  const isDbOutage = input.chaos?.includes("db_outage") ?? false;
+  const isCacheEviction = input.chaos?.includes("cache_eviction") ?? false;
+  const isNetworkDelay = input.chaos?.includes("network_delay") ?? false;
+
   let saturationBase = (input.baseTrafficRps / Math.max(1, nodeCount * 9500 * computeScaleFactor)) * 100;
   if (hasCdn) saturationBase *= 0.72;
   if (hasCache) saturationBase *= 0.85;
   if (!hasDbReplica && dbNodes.length > 0) saturationBase *= 1.22;
   saturationBase *= iopsSaturationFactor;
+  if (isCacheEviction) saturationBase *= 1.35;
+  if (isDbOutage) saturationBase = 100;
 
   const saturationPercent = Math.round(clamp(saturationBase * profile.load * (0.95 + jitter * 0.5), 2, 100));
 
@@ -128,17 +135,21 @@ function generateTickMetrics(input: {
   if (hasCache) baseLatency *= 0.60;
   if (lambdaToDbDirect) baseLatency += 180;
   baseLatency *= ramLatencyFactor;
+  if (isCacheEviction) baseLatency *= 2.2;
+  if (isNetworkDelay) baseLatency += 450;
+  if (isDbOutage) baseLatency += 1500;
 
-  const latencyMsP50 = Math.round(clamp(baseLatency, 5, 900) * profile.latency);
-  const latencyMsP95 = Math.round(clamp(latencyMsP50 * (1.5 + complexity * 0.45), 20, 1800));
+  const latencyMsP50 = Math.round(clamp(baseLatency, 5, 2500) * profile.latency);
+  const latencyMsP95 = Math.round(clamp(latencyMsP50 * (1.5 + complexity * 0.45), 20, 5000));
 
   const throughputRps = Math.round(input.baseTrafficRps * profile.load * (0.88 + pulse * 0.24 + jitter));
 
   let errorRateBase = saturationPercent / 28;
   if (hasQueue) errorRateBase *= 0.65;
   if (hasWaf) errorRateBase *= 0.90;
+  if (isDbOutage) errorRateBase = 90;
 
-  const errorRatePercent = Number(clamp(errorRateBase * profile.error + jitter * 2.5, 0, 45).toFixed(2));
+  const errorRatePercent = Number(clamp(errorRateBase * profile.error + jitter * 2.5, 0, 100).toFixed(2));
 
   let provisionedCost = 0;
   input.graph.nodes.forEach((n) => {
@@ -278,6 +289,7 @@ export async function createSimulationRun(input: {
   profile: SimulationProfile;
   graph: GraphDocument;
   trafficRps: number;
+  chaos?: string[];
 }): Promise<{ runId: string; status: "queued" | "running" | "completed" }> {
   if (typeof window === "undefined") {
     return { runId: "ssr-run", status: "running" };
@@ -311,6 +323,7 @@ export async function createSimulationRun(input: {
       graph: input.graph,
       profile: input.profile,
       prng,
+      chaos: input.chaos,
     });
     ticks.push({
       tick,

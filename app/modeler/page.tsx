@@ -384,6 +384,28 @@ export default function ModelerPage() {
           message: "Direct client access to data store detected. Security isolation broken!",
         });
       }
+
+      if (activeChaosInjections.includes("db_outage")) {
+        newLogs.push({
+          timestamp: timeStr,
+          level: "ERROR",
+          message: "CRITICAL: Database outage injected! Primary cluster unreachable. Failover retries exhausted.",
+        });
+      }
+      if (activeChaosInjections.includes("cache_eviction")) {
+        newLogs.push({
+          timestamp: timeStr,
+          level: "WARN",
+          message: "ALERT: Cache eviction storm active! Evicted cache stores. Read amplification hitting primary DB.",
+        });
+      }
+      if (activeChaosInjections.includes("network_delay")) {
+        newLogs.push({
+          timestamp: timeStr,
+          level: "WARN",
+          message: "LATENCY SHIFT: Injecting +450ms network link transit delay. Inter-service queues accumulating.",
+        });
+      }
     }
 
     const score = snapshot.overallScore;
@@ -397,7 +419,7 @@ export default function ModelerPage() {
       const merged = [...prev, ...newLogs];
       return merged.slice(Math.max(0, merged.length - 100));
     });
-  }, [analysisSummary?.simulationSnapshot, latestGraph]);
+  }, [analysisSummary?.simulationSnapshot, latestGraph, activeChaosInjections]);
   const {
     leftSidebarOpen,
     setLeftSidebarOpen,
@@ -1455,6 +1477,7 @@ ${val.detail}`).join("\n\n")}
               diffBaseGraphDocument={diffBaseGraph}
               batchRemediations={pendingBatchRemediations}
               onBatchRemediationsApplied={() => setPendingBatchRemediations(null)}
+              chaosInjections={activeChaosInjections}
             />
         </main>
 
@@ -1904,7 +1927,7 @@ ${val.detail}`).join("\n\n")}
               </button>
             </div>
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <div className="mt-6 grid gap-4 lg:grid-cols-3">
               <section className="rounded-2xl border border-line bg-panel px-5 py-5">
                 <h3 className="text-lg font-semibold">Scoreboard</h3>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -1950,6 +1973,57 @@ ${val.detail}`).join("\n\n")}
                       {formatCost(simulationMetrics?.estimatedCost)}
                     </span>
                   </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-line bg-panel px-5 py-5 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                    Chaos Injector
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">Inject real-time faults to test topological resilience limits.</p>
+                </div>
+                <div className="mt-4 grid gap-2">
+                  {[
+                    { id: "db_outage", label: "Simulate DB Outage", description: "Crashes database instances (90% error rate)" },
+                    { id: "cache_eviction", label: "Evict Cache memory", description: "Bypasses cache hit pools (eviction storm)" },
+                    { id: "network_delay", label: "Inject network delay", description: "Applies +450ms network delay partition" },
+                  ].map((chaos) => {
+                    const isActive = activeChaosInjections.includes(chaos.id);
+                    return (
+                      <button
+                        key={chaos.id}
+                        type="button"
+                        onClick={() => {
+                          const timeStr = new Date().toLocaleTimeString();
+                          if (isActive) {
+                            setActiveChaosInjections(prev => prev.filter(c => c !== chaos.id));
+                            setConsoleLogs(l => [...l, {
+                              timestamp: timeStr,
+                              level: "AUDIT",
+                              message: `Recovered: Stopped chaos injection [${chaos.label}]. Systems returning to normal.`,
+                            }]);
+                          } else {
+                            setActiveChaosInjections(prev => [...prev, chaos.id]);
+                            setConsoleLogs(l => [...l, {
+                              timestamp: timeStr,
+                              level: "ERROR",
+                              message: `INCIDENT INJECTED: Active fault [${chaos.label}]. Monitoring system alerts.`,
+                            }]);
+                          }
+                        }}
+                        className={`rounded-xl border p-2 text-left transition select-none flex flex-col gap-0.5 ${
+                          isActive
+                            ? "bg-rose-500/10 border-rose-500 text-rose-600 dark:text-rose-400"
+                            : "bg-white/80 border-slate-200 text-slate-700 hover:border-rose-500/40"
+                        }`}
+                      >
+                        <span className="text-xs font-bold">{chaos.label}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{chaos.description}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
             </div>
