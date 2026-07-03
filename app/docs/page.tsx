@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
 import { useTheme } from "../components/ThemeProvider";
+import { CASE_STUDIES } from "./case-studies-data";
 import {
   BookOpen,
   CheckSquare,
@@ -182,12 +183,154 @@ const CHECKLIST_SECTIONS = [
   },
 ];
 
+function parseInline(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*.*?\*\*|`.*?`|\$\$.*?\$\$)/g;
+  const splitParts = text.split(regex);
+
+  return splitParts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index} className="font-extrabold text-slate-900 dark:text-white">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index} className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-xs text-rose-500 dark:text-rose-400">{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith("$$") && part.endsWith("$$")) {
+      return <span key={index} className="font-mono text-cyan-600 dark:text-cyan-400 font-semibold">{part.slice(2, -2)}</span>;
+    }
+    return part;
+  });
+}
+
+function parseMarkdown(md: string): React.ReactNode[] {
+  const lines = md.split("\n");
+  const elements: React.ReactNode[] = [];
+  let inList = false;
+  let listItems: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeBlockLines: string[] = [];
+
+  const flushList = (key: string) => {
+    if (inList && listItems.length > 0) {
+      elements.push(
+        <ul key={`ul-${key}`} className="list-disc pl-6 my-3 space-y-1.5 text-slate-700 dark:text-slate-300">
+          {listItems}
+        </ul>
+      );
+      listItems = [];
+      inList = false;
+    }
+  };
+
+  const flushCodeBlock = (key: string) => {
+    if (inCodeBlock && codeBlockLines.length > 0) {
+      elements.push(
+        <pre key={`code-${key}`} className="p-4 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs overflow-x-auto my-3 border border-slate-800">
+          <code>{codeBlockLines.join("\n")}</code>
+        </pre>
+      );
+      codeBlockLines = [];
+      inCodeBlock = false;
+    }
+  };
+
+  lines.forEach((line, idx) => {
+    if (line.trim().startsWith("```")) {
+      if (inCodeBlock) {
+        flushCodeBlock(`${idx}`);
+      } else {
+        flushList(`${idx}`);
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeBlockLines.push(line);
+      return;
+    }
+
+    if (line.startsWith("# ")) {
+      flushList(`${idx}`);
+      elements.push(
+        <h1 key={idx} className="text-3xl font-extrabold text-slate-900 dark:text-white mt-6 mb-4 pb-2 border-b border-line">
+          {parseInline(line.slice(2))}
+        </h1>
+      );
+      return;
+    }
+    if (line.startsWith("## ")) {
+      flushList(`${idx}`);
+      elements.push(
+        <h2 key={idx} className="text-2xl font-bold text-slate-900 dark:text-white mt-5 mb-3">
+          {parseInline(line.slice(3))}
+        </h2>
+      );
+      return;
+    }
+    if (line.startsWith("### ")) {
+      flushList(`${idx}`);
+      elements.push(
+        <h3 key={idx} className="text-lg font-semibold text-slate-900 dark:text-white mt-4 mb-2">
+          {parseInline(line.slice(4))}
+        </h3>
+      );
+      return;
+    }
+
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      if (!inList) {
+        inList = true;
+      }
+      listItems.push(
+        <li key={idx} className="text-sm text-slate-700 dark:text-slate-300">
+          {parseInline(line.slice(2))}
+        </li>
+      );
+      return;
+    }
+
+    if (line.trim() === "") {
+      flushList(`${idx}`);
+      return;
+    }
+
+    flushList(`${idx}`);
+    elements.push(
+      <p key={idx} className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed my-3">
+        {parseInline(line)}
+      </p>
+    );
+  });
+
+  flushList("end");
+  flushCodeBlock("end");
+
+  return elements;
+}
+
 export default function DocsPage() {
   const { theme, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSection, setActiveSection] = useState("guide");
   const [completedItems, setCompletedItems] = useState<Record<string, boolean>>({});
+  const [deepDiveText, setDeepDiveText] = useState<string | null>(null);
+  const [loadingDeepDive, setLoadingDeepDive] = useState(false);
+
+  const handleOpenDeepDive = async (studyId: string, chapterNum: number) => {
+    setLoadingDeepDive(true);
+    setDeepDiveText(null);
+    try {
+      const res = await fetch(`/api/docs/chapter?study=${studyId}&chapter=${chapterNum}`);
+      const data = await res.json();
+      setDeepDiveText(data.content || "No content found.");
+    } catch {
+      setDeepDiveText("Failed to load content.");
+    } finally {
+      setLoadingDeepDive(false);
+    }
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -333,6 +476,59 @@ export default function DocsPage() {
               <Database className="h-4 w-4" />
               Local Storage DB & Security
             </button>
+            <button
+              onClick={() => setActiveSection("chaos")}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition ${
+                activeSection === "chaos"
+                  ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-l-2 border-cyan-500"
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 opacity-80"
+              }`}
+            >
+              <Terminal className="h-4 w-4" />
+              Chaos Engineering Sandbox
+            </button>
+            <button
+              onClick={() => setActiveSection("advisor")}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition ${
+                activeSection === "advisor"
+                  ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-l-2 border-cyan-500"
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 opacity-80"
+              }`}
+            >
+              <Layers className="h-4 w-4" />
+              TCO Optimization Advisor
+            </button>
+            <button
+              onClick={() => setActiveSection("traffic")}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition ${
+                activeSection === "traffic"
+                  ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-l-2 border-cyan-500"
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 opacity-80"
+              }`}
+            >
+              <Clock className="h-4 w-4" />
+              Load Curves & Tutorials
+            </button>
+
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.25em] text-slate-400 mt-6 mb-2 px-3">
+              Case Study Tutorials
+            </p>
+            <div className="space-y-0.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+              {CASE_STUDIES.map((study) => (
+                <button
+                  key={study.id}
+                  onClick={() => setActiveSection(study.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition text-left ${
+                    activeSection === study.id
+                      ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-l-2 border-cyan-500 font-semibold shadow-sm"
+                      : "hover:bg-slate-100 dark:hover:bg-slate-800 opacity-80"
+                  }`}
+                >
+                  <ExternalLink className="h-4 w-4 shrink-0 text-slate-400" />
+                  <span className="truncate text-xs">Designing {study.name}</span>
+                </button>
+              ))}
+            </div>
 
             <p className="text-[0.65rem] font-bold uppercase tracking-[0.25em] text-slate-400 mt-6 mb-2 px-3">
               Architect Checklist
@@ -626,6 +822,138 @@ export default function DocsPage() {
               </section>
             )}
 
+            {activeSection === "chaos" && (
+              <section className="space-y-6 animate-fadeIn text-left">
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-bold tracking-tight">Chaos Engineering Sandbox</h1>
+                  <p className="text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
+                    Test architectural resilience limits by injecting active faults directly into running topologies.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-3">
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-3">
+                    <h3 className="font-semibold text-lg text-rose-500">Database Outage</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Simulates a complete primary cluster failure. When activated, stateful DB nodes immediately return a 90% error rate, dropping overall resilience scores.
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-3">
+                    <h3 className="font-semibold text-lg text-amber-500">Cache Eviction Storm</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Forces memory caches to flush. This instantly shifts query loads to primary databases, elevating DB saturation metrics and increasing baseline latencies.
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-3">
+                    <h3 className="font-semibold text-lg text-cyan-500">Network Latency Delay</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Injects +450ms link transit delay. Allows testing downstream queue accumulation bottlenecks and verifying how request queues buffer traffic.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {activeSection === "advisor" && (
+              <section className="space-y-6 animate-fadeIn text-left">
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-bold tracking-tight">TCO & Performance Optimization Advisor</h1>
+                  <p className="text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
+                    Automated rule recommendations evaluating node allocations to lower costs and offset bottlenecks.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-2">
+                    <h3 className="font-semibold text-base">API Scale-Down Rule</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Triggers when compute nodes host more than 4 replicas while throughput load runs below 6000 RPS. Recommends downscaling to 2 instances to cut TCO costs.
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-2">
+                    <h3 className="font-semibold text-base">Database Ram Upsizing Rule</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Triggers when stateful storage instances are provisioned with 8GB RAM or less while workloads experience over 70% CPU saturation.
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-2">
+                    <h3 className="font-semibold text-base">IOPS Scaling Rule</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Suggests increasing disk IOPS parameters to 5000 if workloads exceed 60% CPU saturation while disk operations run under 2000 provisioned IOPS.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {activeSection === "traffic" && (
+              <section className="space-y-6 animate-fadeIn text-left">
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-bold tracking-tight">Load Profiles & Interactive Tutorials</h1>
+                  <p className="text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
+                    Trace topological stress limits using diurnal curves, load surges, and guided walk-through steps.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-3">
+                    <h3 className="font-semibold text-base">Load Curve Profiles</h3>
+                    <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                      <li><strong>Nominal (Flat):</strong> Uniform flat query throughput.</li>
+                      <li><strong>Diurnal Cycle:</strong> Simulates day/night workloads using sinusoidal curve calculations.</li>
+                      <li><strong>Black Friday Spikes:</strong> Periodic 3.2x traffic spikes to stress-test failovers.</li>
+                    </ul>
+                  </div>
+                  <div className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-3">
+                    <h3 className="font-semibold text-base">Scenario Tutorials Guide</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Select preset diagrams in the left sidebar to unlock step-by-step guides. Click steps to jump to target topologies and verify architectures.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {(() => {
+              const currentStudy = CASE_STUDIES.find((study) => study.id === activeSection);
+              if (!currentStudy) return null;
+
+              return (
+                <section className="space-y-6 animate-fadeIn text-left">
+                  <div className="space-y-2">
+                    <h1 className="text-4xl font-bold tracking-tight">Designing {currentStudy.name}</h1>
+                    <p className="text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
+                      A comprehensive architecture guide detailing how to build {currentStudy.name} at scale, mapped to our 15-step checklist.
+                    </p>
+                  </div>
+
+                  <div className="space-y-6">
+                    {currentStudy.chapters.map((ch) => (
+                      <div key={ch.num} className="rounded-3xl border border-line bg-panel p-6 shadow-sm space-y-2">
+                        <h3 className="font-semibold text-base flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 text-xs flex items-center justify-center font-bold font-sans">
+                            {ch.num}
+                          </span>
+                          {ch.title}
+                        </h3>
+                        <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed pl-8">
+                          {ch.desc}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDeepDive(currentStudy.id, ch.num)}
+                          className="mt-2 ml-8 text-xs font-semibold text-cyan-500 hover:text-cyan-600 flex items-center gap-1 select-none"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          Read Deep-Dive Textbook Article (2,000+ words)
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })()}
+
             {activeSection === "checklist" && (
               <section className="space-y-6 animate-fadeIn">
                 <div className="space-y-2">
@@ -699,6 +1027,34 @@ export default function DocsPage() {
           </div>
         </main>
       </div>
+      {loadingDeepDive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-md select-none">
+          <div className="rounded-2xl border border-line bg-panel p-6 shadow-xl flex flex-col items-center gap-3">
+            <span className="w-8 h-8 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin" />
+            <p className="text-sm font-semibold text-slate-300">Retrieving textbook article...</p>
+          </div>
+        </div>
+      )}
+
+      {deepDiveText && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 overflow-y-auto">
+          <div className="w-full max-w-4xl rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xl p-8 flex flex-col max-h-[85vh] text-left">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800 select-none">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Deep-Dive Textbook Chapter</h2>
+              <button
+                type="button"
+                onClick={() => setDeepDiveText(null)}
+                className="rounded-xl border border-slate-250 dark:border-slate-700 px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition font-semibold"
+              >
+                Close Reader
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto mt-6 pr-2 scrollbar-thin">
+              {parseMarkdown(deepDiveText)}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
