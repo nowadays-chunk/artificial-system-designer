@@ -57,22 +57,60 @@ function profileMultiplier(profile: SimulationProfile) {
 function generateTickMetrics(input: {
   tick: number;
   baseTrafficRps: number;
-  nodeCount: number;
-  edgeCount: number;
+  graph: GraphDocument;
   profile: SimulationProfile;
   prng: () => number;
 }): SimulationMetrics {
+  const nodeCount = input.graph.nodes.length;
+  const edgeCount = input.graph.edges.length;
+
+  const hasWaf = input.graph.nodes.some(n => n.type === "waf");
+  const hasCdn = input.graph.nodes.some(n => n.type === "cdn");
+  const hasCache = input.graph.nodes.some(n => n.type === "cache");
+  const hasQueue = input.graph.nodes.some(n => n.type === "queue");
+
+  const dbNodes = input.graph.nodes.filter(n => n.type === "database");
+  const hasDbReplica = dbNodes.length > 1;
+
+  let lambdaToDbDirect = false;
+  input.graph.edges.forEach((edge) => {
+    const src = input.graph.nodes.find(n => n.id === edge.sourceId);
+    const tgt = input.graph.nodes.find(n => n.id === edge.targetId);
+    if (src?.type === "lambda" && tgt?.type === "database") {
+      lambdaToDbDirect = true;
+    }
+  });
+
   const profile = profileMultiplier(input.profile);
   const jitter = (input.prng() - 0.5) * 0.12;
   const pulse = (Math.sin(input.tick / 2.3) + 1) / 2;
-  const complexity = clamp(1 + input.edgeCount / Math.max(1, input.nodeCount * 2.2), 1, 2.2);
-  const throughputRps = Math.round(input.baseTrafficRps * profile.load * (0.88 + pulse * 0.24 + jitter));
-  const latencyMsP50 = Math.round(clamp(8 + complexity * 16 + pulse * 22, 5, 900) * profile.latency);
+  const complexity = clamp(1 + edgeCount / Math.max(1, nodeCount * 2.2), 1, 2.2);
+
+  let saturationBase = (input.baseTrafficRps / Math.max(1, nodeCount * 9500)) * 100;
+  if (hasCdn) saturationBase *= 0.72;
+  if (hasCache) saturationBase *= 0.85;
+  if (!hasDbReplica && dbNodes.length > 0) saturationBase *= 1.22;
+
+  const saturationPercent = Math.round(clamp(saturationBase * profile.load * (0.95 + jitter * 0.5), 2, 100));
+
+  let baseLatency = 8 + complexity * 16 + pulse * 22;
+  if (hasCdn) baseLatency *= 0.75;
+  if (hasCache) baseLatency *= 0.60;
+  if (lambdaToDbDirect) baseLatency += 180;
+
+  const latencyMsP50 = Math.round(clamp(baseLatency, 5, 900) * profile.latency);
   const latencyMsP95 = Math.round(clamp(latencyMsP50 * (1.5 + complexity * 0.45), 20, 1800));
-  const saturationPercent = Math.round(clamp((throughputRps / Math.max(1, input.nodeCount * 9500)) * 100, 2, 100));
-  const errorRatePercent = Number(clamp((saturationPercent / 28) * profile.error + jitter * 2.5, 0, 45).toFixed(2));
+
+  const throughputRps = Math.round(input.baseTrafficRps * profile.load * (0.88 + pulse * 0.24 + jitter));
+
+  let errorRateBase = saturationPercent / 28;
+  if (hasQueue) errorRateBase *= 0.65;
+  if (hasWaf) errorRateBase *= 0.90;
+
+  const errorRatePercent = Number(clamp(errorRateBase * profile.error + jitter * 2.5, 0, 45).toFixed(2));
+
   const estimatedCostPerHourUsd = Number(
-    (input.nodeCount * 1.9 + input.edgeCount * 0.34 + throughputRps / 12000 + saturationPercent * 0.07).toFixed(2),
+    (nodeCount * 1.9 + edgeCount * 0.34 + throughputRps / 12000 + saturationPercent * 0.07 + (hasWaf ? 0.85 : 0)).toFixed(2),
   );
 
   return {
@@ -109,15 +147,22 @@ function generateEvents(metrics: SimulationMetrics, profile: SimulationProfile, 
   return events.slice(0, 3);
 }
 
-function buildScorecard(allMetrics: SimulationMetrics[], profile: SimulationProfile): SimulationScorecard {
+function buildScorecard(allMetrics: SimulationMetrics[], profile: SimulationProfile, graph: GraphDocument): SimulationScorecard {
   const p95 = allMetrics.reduce((acc, metric) => acc + metric.latencyMsP95, 0) / Math.max(1, allMetrics.length);
   const saturation = allMetrics.reduce((acc, metric) => acc + metric.saturationPercent, 0) / Math.max(1, allMetrics.length);
   const errors = allMetrics.reduce((acc, metric) => acc + metric.errorRatePercent, 0) / Math.max(1, allMetrics.length);
   const cost = allMetrics.reduce((acc, metric) => acc + metric.estimatedCostPerHourUsd, 0) / Math.max(1, allMetrics.length);
   const multiplier = profileMultiplier(profile);
 
-  const resilience = clamp(92 * multiplier.resilience - saturation * 0.4 - errors * 1.2, 0, 100);
-  const security = clamp(85 - errors * 1.1, 0, 100);
+  const hasWaf = graph.nodes.some(n => n.type === "waf");
+  const hasDbReplica = graph.nodes.filter(n => n.type === "database").length > 1;
+  const hasQueue = graph.nodes.some(n => n.type === "queue");
+
+  const resilience = clamp(92 * multiplier.resilience - saturation * 0.4 - errors * 1.2 + (hasQueue ? 8 : 0) + (hasDbReplica ? 6 : 0), 0, 100);
+  
+  const maxSecurity = hasWaf ? 100 : 60;
+  const security = clamp(Math.min(maxSecurity, 85 - errors * 1.1 + (hasWaf ? 12 : 0)), 0, 100);
+
   const performance = clamp(100 - p95 * 0.12 - saturation * 0.45, 0, 100);
   const costScore = clamp(100 - cost * 1.4, 0, 100);
   const overall = (resilience + security + performance + costScore) / 4;
@@ -216,8 +261,7 @@ export async function createSimulationRun(input: {
     const metrics = generateTickMetrics({
       tick,
       baseTrafficRps: trafficRps,
-      nodeCount: input.graph.nodes.length,
-      edgeCount: input.graph.edges.length,
+      graph: input.graph,
       profile: input.profile,
       prng,
     });
@@ -229,7 +273,7 @@ export async function createSimulationRun(input: {
     });
   }
 
-  const scorecard = buildScorecard(ticks.map((item) => item.metrics), input.profile);
+  const scorecard = buildScorecard(ticks.map((item) => item.metrics), input.profile, input.graph);
   const finalMetrics = ticks[ticks.length - 1]?.metrics;
   const findings = buildFindings(ticks);
 

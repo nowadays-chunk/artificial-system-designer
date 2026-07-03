@@ -499,7 +499,9 @@ export default function DocsPage() {
                     </div>
 
                     <div className="p-4 rounded-2xl bg-background/50 border border-line space-y-2">
-                      <p className="font-semibold text-cyan-600 dark:text-cyan-400 text-sm">3. Error Rate (\(E_{rate}\))</p>
+                      <p className="font-semibold text-cyan-600 dark:text-cyan-400 text-sm">
+                        {"3. Error Rate (\\(E_{rate}\\))"}
+                      </p>
                       <p className="text-xs leading-relaxed">
                         Error rates scale exponentially as saturation crosses threshold zones, amplified by profile constraints:
                       </p>

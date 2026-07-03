@@ -1540,6 +1540,7 @@ export function DiagramModeler({
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
   const [snapToGridEnabled, setSnapToGridEnabled] = useState(true);
   const [alignmentGuides, setAlignmentGuides] = useState<{ x?: number; y?: number } | null>(null);
+  const [zoomScale, setZoomScale] = useState(1);
 
   const initialGraphDocRef = useRef<string | null>(null);
 
@@ -2018,6 +2019,9 @@ export function DiagramModeler({
   }, [activeWorkspaceId, graphDocument, selectedScenarioName]);
 
   useEffect(() => {
+    if (dragState !== null) {
+      return;
+    }
     let active = true;
 
     const runRemoteSimulation = async () => {
@@ -2054,7 +2058,7 @@ export function DiagramModeler({
     return () => {
       active = false;
     };
-  }, [activeWorkspaceId, graphDocument, selectedScenarioName, trafficRps]);
+  }, [activeWorkspaceId, graphDocument, selectedScenarioName, trafficRps, dragState]);
 
   const loadScenarioSteps = (stepCount: number) => {
     if (!selectedScenario) {
@@ -2216,6 +2220,19 @@ export function DiagramModeler({
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
         setTick((current) => current + 1);
+      }
+
+      if ((event.ctrlKey || event.metaKey) && (event.key === "=" || event.key === "+")) {
+        event.preventDefault();
+        setZoomScale((z) => Math.min(2.0, Number((z + 0.1).toFixed(1))));
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "-") {
+        event.preventDefault();
+        setZoomScale((z) => Math.max(0.5, Number((z - 0.1).toFixed(1))));
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "0") {
+        event.preventDefault();
+        setZoomScale(1.0);
       }
 
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "l") {
