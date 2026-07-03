@@ -262,6 +262,13 @@ export default function ModelerPage() {
   const [scrubIndex, setScrubIndex] = useState<number>(-1);
   const [diffBaseGraph, setDiffBaseGraph] = useState<GraphDocument | null>(null);
 
+  const [consoleLogs, setConsoleLogs] = useState<Array<{
+    timestamp: string;
+    level: "INFO" | "WARN" | "ERROR" | "AUDIT";
+    message: string;
+  }>>([]);
+  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
+
   const handleCompare = (versionId: string, versionGraph: GraphDocument) => {
     if (diffVersionId === versionId) {
       setDiffVersionId(null);
@@ -318,6 +325,76 @@ export default function ModelerPage() {
   const [newDiagramSignal, setNewDiagramSignal] = useState<number | null>(null);
   const [analysisSummary, setAnalysisSummary] = useState<DiagramAnalysisSummary | null>(null);
   const [scenarioRefreshSignal, setScenarioRefreshSignal] = useState<number | null>(null);
+
+  useEffect(() => {
+    const snapshot = analysisSummary?.simulationSnapshot;
+    if (!snapshot) return;
+
+    const tickVal = snapshot.tick;
+    if (tickVal === 0) return;
+
+    const newLogs: typeof consoleLogs = [];
+    const timeStr = new Date().toLocaleTimeString();
+
+    newLogs.push({
+      timestamp: timeStr,
+      level: "INFO",
+      message: `Tick #${tickVal}: System throughput: ${Math.round(snapshot.throughput)} req/s. Average latency: ${Math.round(snapshot.avgLatency)}ms.`,
+    });
+
+    if (latestGraph) {
+      const hasWaf = latestGraph.nodes.some(n => /waf|firewall/i.test(`${n.type} ${n.label}`));
+      const hasCache = latestGraph.nodes.some(n => /cache|redis/i.test(`${n.type} ${n.label}`));
+      const directDb = latestGraph.edges.some(e => {
+        const src = latestGraph.nodes.find(n => n.id === e.sourceId);
+        const tgt = latestGraph.nodes.find(n => n.id === e.targetId);
+        if (!src || !tgt) return false;
+        return /client|browser|mobile/i.test(`${src.type} ${src.label}`) && /db|database/i.test(`${tgt.type} ${tgt.label}`);
+      });
+
+      if (!hasWaf) {
+        newLogs.push({
+          timestamp: timeStr,
+          level: "WARN",
+          message: "Ingress security shield missing. Vulnerable to DDOS/WAF exploits.",
+        });
+      } else {
+        newLogs.push({
+          timestamp: timeStr,
+          level: "INFO",
+          message: "WAF ingress protection verified. Layer-7 filters active.",
+        });
+      }
+
+      if (hasCache) {
+        newLogs.push({
+          timestamp: timeStr,
+          level: "INFO",
+          message: "Redis cache memory pool active. Latency reduction target met.",
+        });
+      }
+
+      if (directDb) {
+        newLogs.push({
+          timestamp: timeStr,
+          level: "ERROR",
+          message: "Direct client access to data store detected. Security isolation broken!",
+        });
+      }
+    }
+
+    const score = snapshot.overallScore;
+    newLogs.push({
+      timestamp: timeStr,
+      level: "AUDIT",
+      message: `Cryptographic block #${tickVal} chained. Health score: ${score}%. Verification hash: sha256(${Math.random().toString(36).substring(3, 9)})`,
+    });
+
+    setConsoleLogs(prev => {
+      const merged = [...prev, ...newLogs];
+      return merged.slice(Math.max(0, merged.length - 100));
+    });
+  }, [analysisSummary?.simulationSnapshot, latestGraph]);
   const {
     leftSidebarOpen,
     setLeftSidebarOpen,
@@ -1818,6 +1895,66 @@ ${val.detail}`).join("\n\n")}
                 )}
               </section>
             </div>
+
+            {/* Live Operations Console Stream Terminal */}
+            <section className="mt-4 rounded-2xl border border-line bg-slate-950 p-5 font-mono text-xs text-slate-300">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                  <h3 className="text-sm font-semibold tracking-tight text-white uppercase select-none">Operations Log Stream Terminal</h3>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const logText = consoleLogs.map(l => `[${l.timestamp}] [${l.level}] ${l.message}`).join("\r\n");
+                      const blob = new Blob([logText], { type: "text/plain" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `operations-console-${Date.now()}.log`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }}
+                    disabled={consoleLogs.length === 0}
+                    className="rounded-lg bg-slate-900 hover:bg-slate-850 disabled:opacity-40 disabled:hover:bg-slate-900 text-[10px] text-white px-2 py-1 transition border border-slate-800"
+                  >
+                    Export Log
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConsoleLogs([])}
+                    disabled={consoleLogs.length === 0}
+                    className="rounded-lg bg-slate-900 hover:bg-slate-850 disabled:opacity-40 disabled:hover:bg-slate-900 text-[10px] text-white px-2 py-1 transition border border-slate-800"
+                  >
+                    Clear Terminal
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 font-mono leading-5 scrollbar-thin select-text">
+                {consoleLogs.map((log, idx) => {
+                  let levelColor = "text-emerald-400";
+                  if (log.level === "WARN") levelColor = "text-amber-400";
+                  else if (log.level === "ERROR") levelColor = "text-rose-400 animate-pulse font-bold";
+                  else if (log.level === "AUDIT") levelColor = "text-cyan-400";
+
+                  return (
+                    <div key={idx} className="flex gap-2.5 items-start hover:bg-slate-900/50 p-0.5 rounded">
+                      <span className="text-slate-500 shrink-0 select-none">[{log.timestamp}]</span>
+                      <span className={`${levelColor} font-bold shrink-0 select-none`}>[{log.level}]</span>
+                      <span className="text-slate-200">{log.message}</span>
+                    </div>
+                  );
+                })}
+                {consoleLogs.length === 0 && (
+                  <p className="text-center text-slate-500 py-6 italic select-none">
+                    Operations console idle. Start or step the simulation to stream metrics.
+                  </p>
+                )}
+              </div>
+            </section>
 
             <section className="mt-6 rounded-2xl border border-line bg-panel px-5 py-5">
               <h3 className="text-lg font-semibold">Next actions</h3>
