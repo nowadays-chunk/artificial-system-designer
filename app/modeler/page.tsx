@@ -537,7 +537,8 @@ export default function ModelerPage() {
       const isDb = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${node.type} ${node.label}`);
       if (isDb) {
         const ram = typeof node.settings?.ram === "number" ? node.settings.ram : 4;
-        const saturation = analysisSummary?.simulationSnapshot?.saturation ?? 0;
+        const nodeState = analysisSummary?.simulationSnapshot?.nodeState?.[node.id];
+        const saturation = nodeState?.cpu ?? 0;
         if (ram <= 8 && saturation > 70) {
           items.push({
             id: `under-db-${node.id}`,
