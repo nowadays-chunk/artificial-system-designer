@@ -1746,10 +1746,10 @@ ${val.detail}`).join("\n\n")}
                                   {message.finding.evidencePath.nodeIds.map((nodeId: string, index: number) => {
                                     const nodeName = latestGraph?.nodes.find((n) => n.id === nodeId)?.label || nodeId;
                                     return (
-                                      <React.Fragment key={nodeId}>
+                                      <span key={nodeId} className="inline-flex items-center gap-1.5">
                                         {index > 0 && <span className="text-slate-400 font-bold">➔</span>}
                                         <span className="bg-white dark:bg-slate-950 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 font-semibold shadow-sm">{nodeName}</span>
-                                      </React.Fragment>
+                                      </span>
                                     );
                                   })}
                                 </div>
