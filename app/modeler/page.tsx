@@ -1522,7 +1522,7 @@ ${val.detail}`).join("\n\n")}
                             setConsoleLogs(l => [...l, {
                               timestamp: timeStr,
                               level: "INFO",
-                              message: `Tutorial progress updated: Jumped to Step ${idx + 1} (${step.action_title}).`,
+                              message: `Tutorial progress updated: Jumped to Step ${idx + 1} (${step.title}).`,
                             }]);
                           }}
                           className={`w-full text-left rounded-xl border p-2 text-xs flex items-start gap-2 transition ${
@@ -1535,8 +1535,8 @@ ${val.detail}`).join("\n\n")}
                             {isCompleted ? "✓" : isCurrent ? "●" : `${idx + 1}`}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className="truncate font-semibold">{step.action_title}</p>
-                            <p className="text-[9px] text-slate-400 truncate mt-0.5">{step.action_description}</p>
+                            <p className="truncate font-semibold">{step.title}</p>
+                            <p className="text-[9px] text-slate-400 truncate mt-0.5">{step.learn_more_link}</p>
                           </div>
                         </button>
                       );
