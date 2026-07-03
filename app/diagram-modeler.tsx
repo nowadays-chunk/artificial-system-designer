@@ -1453,6 +1453,8 @@ export function DiagramModeler({
   chaosInjections = [],
   activeStepIndex = null,
   onStepIndexChange,
+  trafficProfile = "flat",
+  onTrafficProfileChange,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1475,6 +1477,8 @@ export function DiagramModeler({
   chaosInjections?: string[];
   activeStepIndex?: number | null;
   onStepIndexChange?: (step: number) => void;
+  trafficProfile?: "flat" | "diurnal" | "spikes";
+  onTrafficProfileChange?: (profile: "flat" | "diurnal" | "spikes") => void;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -2077,6 +2081,7 @@ export function DiagramModeler({
           graph: graphDocument,
           trafficRps,
           chaos: chaosInjections,
+          trafficProfile,
         });
         const run = await getSimulationRun(created.runId);
         if (!active) {
@@ -2857,23 +2862,40 @@ export function DiagramModeler({
         <div className={isCanvasOnly ? "h-full bg-slate-950 p-4" : "rounded-[1.8rem] border border-white/70 bg-panel border-line shadow-md"}>
           {!isCanvasOnly ? (
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex-1">
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                  Traffic Pressure
-                </p>
-                <div className="mt-3 flex items-center gap-4">
-                  <input
-                    type="range"
-                    min={400}
-                    max={1_400_000}
-                    step={200}
-                    value={trafficRps}
-                    onChange={(event) => setTrafficRps(Number(event.target.value))}
-                    className="w-full accent-cyan-600"
-                  />
-                  <div className="min-w-[130px] rounded-2xl bg-slate-950 px-4 py-3 text-right text-sm font-medium text-white">
-                    {formatNumber(trafficRps)} req/s
+              <div className="flex-1 flex flex-col md:flex-row md:items-center gap-6 text-left">
+                <div className="flex-1">
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                    Traffic Pressure
+                  </p>
+                  <div className="mt-3 flex items-center gap-4">
+                    <input
+                      type="range"
+                      min={400}
+                      max={1_400_000}
+                      step={200}
+                      value={trafficRps}
+                      onChange={(event) => setTrafficRps(Number(event.target.value))}
+                      className="w-full accent-cyan-600"
+                    />
+                    <div className="min-w-[130px] rounded-2xl bg-slate-950 px-4 py-3 text-right text-sm font-medium text-white">
+                      {formatNumber(trafficRps)} req/s
+                    </div>
                   </div>
+                </div>
+
+                <div className="md:w-56">
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                    Load Curve Profile
+                  </p>
+                  <select
+                    value={trafficProfile}
+                    onChange={(e) => onTrafficProfileChange?.(e.target.value as any)}
+                    className="mt-3 w-full rounded-2xl border border-line bg-slate-950 px-3.5 py-3 text-sm font-medium text-white focus:outline-none focus:border-cyan-500 transition cursor-pointer"
+                  >
+                    <option value="flat">Nominal (Flat)</option>
+                    <option value="diurnal">Diurnal (Day/Night curve)</option>
+                    <option value="spikes">Black Friday Load Spikes</option>
+                  </select>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">

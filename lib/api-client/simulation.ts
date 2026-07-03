@@ -290,6 +290,7 @@ export async function createSimulationRun(input: {
   graph: GraphDocument;
   trafficRps: number;
   chaos?: string[];
+  trafficProfile?: "flat" | "diurnal" | "spikes";
 }): Promise<{ runId: string; status: "queued" | "running" | "completed" }> {
   if (typeof window === "undefined") {
     return { runId: "ssr-run", status: "running" };
@@ -317,9 +318,20 @@ export async function createSimulationRun(input: {
   const prng = createPrng(input.seed);
   const ticks: SimulationTick[] = [];
   for (let tick = 1; tick <= 24; tick += 1) {
+    let currentRps = trafficRps;
+    if (input.trafficProfile === "diurnal") {
+      currentRps = Math.round(trafficRps * (0.65 + Math.sin(tick / 3.8) * 0.35));
+    } else if (input.trafficProfile === "spikes") {
+      if (tick % 6 === 0) {
+        currentRps = trafficRps * 3.2;
+      } else {
+        currentRps = Math.round(trafficRps * 0.75);
+      }
+    }
+
     const metrics = generateTickMetrics({
       tick,
-      baseTrafficRps: trafficRps,
+      baseTrafficRps: currentRps,
       graph: input.graph,
       profile: input.profile,
       prng,

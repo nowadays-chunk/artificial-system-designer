@@ -272,6 +272,7 @@ export default function ModelerPage() {
   const [pendingBatchRemediations, setPendingBatchRemediations] = useState<any[] | null>(null);
   const [activeChaosInjections, setActiveChaosInjections] = useState<string[]>([]);
   const [activeStepIndex, setActiveStepIndex] = useState<number | null>(null);
+  const [trafficProfile, setTrafficProfile] = useState<"flat" | "diurnal" | "spikes">("flat");
 
   const handleCompare = (versionId: string, versionGraph: GraphDocument) => {
     if (diffVersionId === versionId) {
@@ -345,6 +346,14 @@ export default function ModelerPage() {
       level: "INFO",
       message: `Tick #${tickVal}: System throughput: ${Math.round(snapshot.throughput)} req/s. Average latency: ${Math.round(snapshot.avgLatency)}ms.`,
     });
+
+    if (trafficProfile === "spikes" && tickVal % 6 === 0) {
+      newLogs.push({
+        timestamp: timeStr,
+        level: "WARN",
+        message: `TRAFFIC SURGE: Peak load surge active! Handling ${Math.round(snapshot.throughput)} requests/sec (3.2x load multiplier).`,
+      });
+    }
 
     if (latestGraph) {
       const hasWaf = latestGraph.nodes.some(n => /waf|firewall/i.test(`${n.type} ${n.label}`));
@@ -420,7 +429,7 @@ export default function ModelerPage() {
       const merged = [...prev, ...newLogs];
       return merged.slice(Math.max(0, merged.length - 100));
     });
-  }, [analysisSummary?.simulationSnapshot, latestGraph, activeChaosInjections]);
+  }, [analysisSummary?.simulationSnapshot, latestGraph, activeChaosInjections, trafficProfile]);
   const {
     leftSidebarOpen,
     setLeftSidebarOpen,
@@ -1593,6 +1602,8 @@ ${val.detail}`).join("\n\n")}
               chaosInjections={activeChaosInjections}
               activeStepIndex={activeStepIndex}
               onStepIndexChange={setActiveStepIndex}
+              trafficProfile={trafficProfile}
+              onTrafficProfileChange={setTrafficProfile}
             />
         </main>
 
