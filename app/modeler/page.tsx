@@ -268,6 +268,8 @@ export default function ModelerPage() {
     message: string;
   }>>([]);
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
+  const [showRemediationModal, setShowRemediationModal] = useState(false);
+  const [pendingBatchRemediations, setPendingBatchRemediations] = useState<any[] | null>(null);
 
   const handleCompare = (versionId: string, versionGraph: GraphDocument) => {
     if (diffVersionId === versionId) {
@@ -1450,6 +1452,8 @@ ${val.detail}`).join("\n\n")}
               scenarioRefreshSignal={scenarioRefreshSignal}
               initialGraphDocument={loadedGraphDocument}
               diffBaseGraphDocument={diffBaseGraph}
+              batchRemediations={pendingBatchRemediations}
+              onBatchRemediationsApplied={() => setPendingBatchRemediations(null)}
             />
         </main>
 
@@ -1951,7 +1955,18 @@ ${val.detail}`).join("\n\n")}
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               <section className="rounded-2xl border border-line bg-background px-5 py-5">
-                <h3 className="text-lg font-semibold">Validation findings ({validationInsights.length})</h3>
+                <div className="flex justify-between items-center pb-1">
+                  <h3 className="text-lg font-semibold">Validation findings ({validationInsights.length})</h3>
+                  {validationInsights.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRemediationModal(true)}
+                      className="rounded-lg bg-cyan-600 hover:bg-cyan-700 text-xs font-semibold text-white px-2.5 py-1 transition shadow"
+                    >
+                      Auto-Remediate All
+                    </button>
+                  )}
+                </div>
                 {validationInsights.length ? (
                   <div className="mt-4 space-y-3 max-h-56 overflow-y-auto pr-1 text-sm">
                     {validationInsights.map((message) => (
@@ -2121,6 +2136,73 @@ ${val.detail}`).join("\n\n")}
           </div>
         </div>
       ) : null}
+
+      {showRemediationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-3xl border border-line bg-slate-900 shadow-2xl p-6 space-y-4 text-left">
+            <div>
+              <h3 className="text-lg font-bold text-white uppercase tracking-wider select-none">Architectural Healing Wizard</h3>
+              <p className="text-xs text-slate-400 mt-1 select-none">Review the batch remediation plan that will resolve active system warnings.</p>
+            </div>
+
+            <div className="max-h-56 overflow-y-auto space-y-2.5 pr-1 border-t border-b border-slate-800 py-4">
+              {validationInsights.map((insight, idx) => {
+                const actions = insight.finding?.remediation || [];
+                return (
+                  <div key={idx} className="rounded-xl border border-slate-850 bg-slate-950/50 p-3 space-y-1.5 font-sans">
+                    <div className="flex justify-between items-center select-none">
+                      <span className="text-[10px] font-extrabold text-rose-400 uppercase tracking-wide">{insight.finding?.ruleCode || insight.rule}</span>
+                      <span className="text-[9px] font-bold text-slate-500">{insight.level.toUpperCase()}</span>
+                    </div>
+                    <p className="text-xs text-slate-300 font-medium leading-relaxed">{insight.detail}</p>
+                    {actions.map((act: any) => (
+                      <div key={act.id} className="text-[10px] text-cyan-400 flex items-center gap-1.5 font-semibold pt-1.5 border-t border-slate-900">
+                        <span className="select-none">✦ Remedy Action:</span>
+                        <span>{act.label} ({act.description})</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-between items-center text-[10px] text-slate-500 pt-1 font-sans">
+              <span className="select-none">Resolves {validationInsights.length} issues sequentially.</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRemediationModal(false)}
+                  className="rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white px-3 py-1.5 transition font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allCommands = validationInsights.flatMap(insight => insight.finding?.remediation || []);
+                    if (allCommands.length > 0) {
+                      setPendingBatchRemediations(allCommands);
+                      const timeStr = new Date().toLocaleTimeString();
+                      setConsoleLogs(prev => [
+                        ...prev,
+                        {
+                          timestamp: timeStr,
+                          level: "AUDIT",
+                          message: `Triggered batch auto-healing wizard. Running ${allCommands.length} remediation dispatches...`,
+                        }
+                      ]);
+                    }
+                    setShowRemediationModal(false);
+                  }}
+                  className="rounded-lg bg-cyan-600 hover:bg-cyan-700 text-xs text-white px-3 py-1.5 transition font-bold shadow-lg"
+                >
+                  Apply Healing Actions
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

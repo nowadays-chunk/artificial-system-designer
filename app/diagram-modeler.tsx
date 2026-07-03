@@ -1448,6 +1448,8 @@ export function DiagramModeler({
   scenarioRefreshSignal,
   initialGraphDocument = null,
   diffBaseGraphDocument = null,
+  batchRemediations = null,
+  onBatchRemediationsApplied,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1465,6 +1467,8 @@ export function DiagramModeler({
   scenarioRefreshSignal?: number | null;
   initialGraphDocument?: GraphDocument | null;
   diffBaseGraphDocument?: GraphDocument | null;
+  batchRemediations?: any[] | null;
+  onBatchRemediationsApplied?: () => void;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -1665,6 +1669,14 @@ export function DiagramModeler({
       }
     }
   }, [addNode, removeEdge, addEdge, edges, nodes, updateNode]);
+
+  useEffect(() => {
+    if (!batchRemediations || batchRemediations.length === 0) return;
+    batchRemediations.forEach((cmd) => {
+      executeRemediation(cmd);
+    });
+    onBatchRemediationsApplied?.();
+  }, [batchRemediations, executeRemediation, onBatchRemediationsApplied]);
 
   const commandList = useMemo(() => {
     return [
