@@ -271,6 +271,7 @@ export default function ModelerPage() {
   const [showRemediationModal, setShowRemediationModal] = useState(false);
   const [pendingBatchRemediations, setPendingBatchRemediations] = useState<any[] | null>(null);
   const [activeChaosInjections, setActiveChaosInjections] = useState<string[]>([]);
+  const [activeStepIndex, setActiveStepIndex] = useState<number | null>(null);
 
   const handleCompare = (versionId: string, versionGraph: GraphDocument) => {
     if (diffVersionId === versionId) {
@@ -1484,11 +1485,55 @@ ${val.detail}`).join("\n\n")}
               </p>
               <button
                 type="button"
-                onClick={() => setScenarioRefreshSignal((value) => Date.now())}
+                onClick={() => {
+                  setScenarioRefreshSignal((value) => Date.now());
+                  setActiveStepIndex(null);
+                }}
                 className="w-full rounded-2xl border border-line bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-500/60"
               >
                 Reapply preset
               </button>
+
+              {selectedScenario?.architecture_steps && selectedScenario.architecture_steps.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-line space-y-2 select-none">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-left">Guided steps tutorial</p>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    {selectedScenario.architecture_steps.map((step, idx) => {
+                      const isCompleted = activeStepIndex !== null && idx < activeStepIndex;
+                      const isCurrent = idx === (activeStepIndex ?? selectedScenario.architecture_steps.length);
+                      
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setActiveStepIndex(idx);
+                            const timeStr = new Date().toLocaleTimeString();
+                            setConsoleLogs(l => [...l, {
+                              timestamp: timeStr,
+                              level: "INFO",
+                              message: `Tutorial progress updated: Jumped to Step ${idx + 1} (${step.action_title}).`,
+                            }]);
+                          }}
+                          className={`w-full text-left rounded-xl border p-2 text-xs flex items-start gap-2 transition ${
+                            isCurrent
+                              ? "bg-cyan-500/10 border-cyan-500 text-cyan-600 dark:text-cyan-400 font-semibold shadow-sm"
+                              : "bg-slate-900/5 border-slate-200 text-slate-500 dark:text-slate-400 hover:border-cyan-500/40"
+                          }`}
+                        >
+                          <span className={`shrink-0 text-[10px] font-bold ${isCompleted ? "text-emerald-500" : isCurrent ? "text-cyan-500 animate-pulse font-sans" : "text-slate-400 font-sans"}`}>
+                            {isCompleted ? "✓" : isCurrent ? "●" : `${idx + 1}`}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="truncate font-semibold">{step.action_title}</p>
+                            <p className="text-[9px] text-slate-400 truncate mt-0.5">{step.action_description}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className="space-y-3 rounded-[1.4rem] border border-line bg-background/60 p-3">
@@ -1546,6 +1591,8 @@ ${val.detail}`).join("\n\n")}
               batchRemediations={pendingBatchRemediations}
               onBatchRemediationsApplied={() => setPendingBatchRemediations(null)}
               chaosInjections={activeChaosInjections}
+              activeStepIndex={activeStepIndex}
+              onStepIndexChange={setActiveStepIndex}
             />
         </main>
 

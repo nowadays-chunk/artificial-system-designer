@@ -1451,6 +1451,8 @@ export function DiagramModeler({
   batchRemediations = null,
   onBatchRemediationsApplied,
   chaosInjections = [],
+  activeStepIndex = null,
+  onStepIndexChange,
 }: {
   headless?: boolean;
   canvasOnly?: boolean;
@@ -1471,6 +1473,8 @@ export function DiagramModeler({
   batchRemediations?: any[] | null;
   onBatchRemediationsApplied?: () => void;
   chaosInjections?: string[];
+  activeStepIndex?: number | null;
+  onStepIndexChange?: (step: number) => void;
 }) {
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -2111,6 +2115,16 @@ export function DiagramModeler({
       resetTick();
     });
   };
+
+  useEffect(() => {
+    if (activeStepIndex !== null && activeStepIndex !== guidedStepCount) {
+      loadScenarioSteps(activeStepIndex);
+    }
+  }, [activeStepIndex, guidedStepCount]);
+
+  useEffect(() => {
+    onStepIndexChange?.(guidedStepCount);
+  }, [guidedStepCount, onStepIndexChange]);
 
   const handleGlobalPointerMove = useEffectEvent((event: PointerEvent) => {
     if (!dragState || !canvasRef.current) {
