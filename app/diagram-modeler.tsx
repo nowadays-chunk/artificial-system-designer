@@ -1547,6 +1547,7 @@ export function DiagramModeler({
   const [snapToGridEnabled, setSnapToGridEnabled] = useState(true);
   const [alignmentGuides, setAlignmentGuides] = useState<{ x?: number; y?: number } | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
+  const [showPerformanceOverlay, setShowPerformanceOverlay] = useState(false);
 
   const diffNodes = useMemo(() => {
     if (!diffBaseGraphDocument) {
@@ -2979,17 +2980,40 @@ export function DiagramModeler({
                         strokeWidth={isSelected ? 4 : 3}
                         strokeLinecap="round"
                       />
-                      {isActive ? (
-                        <path
-                          d={path}
-                          fill="none"
-                          stroke="url(#edge-active)"
-                          strokeWidth={3}
-                          strokeLinecap="round"
-                          strokeDasharray="14 10"
-                          className="edge-flow"
-                        />
-                      ) : null}
+                      {isActive ? (() => {
+                        let strokeColor = "url(#edge-active)";
+                        let duration = "1.4s";
+                        
+                        if (showPerformanceOverlay) {
+                          const srcState = simulation.nodeState[edge.sourceId];
+                          const tgtState = simulation.nodeState[edge.targetId];
+                          const srcCpu = srcState?.cpu ?? 0;
+                          const tgtCpu = tgtState?.cpu ?? 0;
+                          
+                          if (srcCpu >= 80 || tgtCpu >= 80) {
+                            strokeColor = "#f43f5e";
+                            duration = "0.5s";
+                          } else if (srcCpu >= 50 || tgtCpu >= 50) {
+                            strokeColor = "#fb923c";
+                            duration = "0.9s";
+                          } else {
+                            strokeColor = "#10b981";
+                            duration = "2.2s";
+                          }
+                        }
+                        
+                        return (
+                          <path
+                            d={path}
+                            fill="none"
+                            stroke={strokeColor}
+                            strokeWidth={3}
+                            strokeLinecap="round"
+                            strokeDasharray="14 10"
+                            style={{ animation: `edge-flow ${duration} linear infinite` }}
+                          />
+                        );
+                      })() : null}
                       <path
                         d={path}
                         fill="none"
@@ -3081,18 +3105,33 @@ export function DiagramModeler({
                 const hasWarning = nodeFindings.length > 0;
 
                 const isAdded = diffNodes.addedIds.has(node.id);
+                let customBorderColor = isAdded ? "rgba(16, 185, 129, 0.8)" : (isSelected ? theme.accent : tone.border);
+                let customBoxShadow = isAdded ? `0 0 20px rgba(16, 185, 129, 0.3)` : (isSelected ? `0 20px 55px ${theme.shadow}` : tone.glow);
+
+                if (showPerformanceOverlay && state) {
+                  const saturation = state.cpu ?? 0;
+                  if (saturation >= 80) {
+                    customBorderColor = "#ef4444";
+                    customBoxShadow = "0 0 25px rgba(239, 68, 68, 0.8)";
+                  } else if (saturation >= 50) {
+                    customBorderColor = "#f59e0b";
+                    customBoxShadow = "0 0 20px rgba(245, 158, 11, 0.6)";
+                  } else {
+                    customBorderColor = "#10b981";
+                    customBoxShadow = "0 0 15px rgba(16, 185, 129, 0.45)";
+                  }
+                }
+
                 const cardStyle: CSSProperties = {
                   left: node.x,
                   top: node.y,
                   width: node.width,
                   height: node.height,
-                  borderColor: isAdded ? "rgba(16, 185, 129, 0.8)" : (isSelected ? theme.accent : tone.border),
+                  borderColor: customBorderColor,
                   background: isAdded
                     ? `linear-gradient(145deg, rgba(6, 78, 59, 0.45), rgba(10, 16, 30, 0.95))`
                     : `linear-gradient(145deg, ${theme.surface}, rgba(10, 16, 30, 0.92))`,
-                  boxShadow: isAdded
-                    ? `0 0 20px rgba(16, 185, 129, 0.3)`
-                    : (isSelected ? `0 20px 55px ${theme.shadow}` : tone.glow),
+                  boxShadow: customBoxShadow,
                 };
 
                 return (
@@ -3332,6 +3371,20 @@ export function DiagramModeler({
                   title="Toggle Snap to Grid (20px)"
                 >
                   Snap: {snapToGridEnabled ? "ON" : "OFF"}
+                </button>
+                <div className="w-[1px] h-4 bg-line" />
+                <button
+                  type="button"
+                  onClick={() => setShowPerformanceOverlay(!showPerformanceOverlay)}
+                  className={`rounded-lg px-2 py-1 text-xs font-semibold border transition flex items-center gap-1 ${
+                    showPerformanceOverlay
+                      ? "bg-rose-600/10 border-rose-500/30 text-rose-600 dark:text-rose-400"
+                      : "bg-background/50 border-line text-slate-500 hover:border-rose-500/40"
+                  }`}
+                  title="Toggle Live Performance Heatmap Overlay"
+                >
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse inline-block" />
+                  Heatmap: {showPerformanceOverlay ? "ON" : "OFF"}
                 </button>
                 <div className="w-[1px] h-4 bg-line" />
                 <div className="flex items-center gap-1.5">

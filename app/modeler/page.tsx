@@ -270,6 +270,7 @@ export default function ModelerPage() {
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
   const [showRemediationModal, setShowRemediationModal] = useState(false);
   const [pendingBatchRemediations, setPendingBatchRemediations] = useState<any[] | null>(null);
+  const [activeChaosInjections, setActiveChaosInjections] = useState<string[]>([]);
 
   const handleCompare = (versionId: string, versionGraph: GraphDocument) => {
     if (diffVersionId === versionId) {
