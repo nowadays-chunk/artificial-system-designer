@@ -92,11 +92,14 @@ function generateTickMetrics(input: {
     const isStateful = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${n.type} ${n.label}`);
     if (isCompute) {
       computeNodesCount++;
-      totalReplicas += n.settings?.replicas ?? 1;
+      const reps = typeof n.settings?.replicas === "number" ? n.settings.replicas : 1;
+      totalReplicas += reps;
     } else if (isStateful) {
       dbCount++;
-      totalRam += n.settings?.ram ?? 4;
-      totalIops += n.settings?.iops ?? 1000;
+      const r = typeof n.settings?.ram === "number" ? n.settings.ram : 4;
+      const i = typeof n.settings?.iops === "number" ? n.settings.iops : 1000;
+      totalRam += r;
+      totalIops += i;
     }
   });
 
@@ -142,9 +145,12 @@ function generateTickMetrics(input: {
     const isCompute = /service|api|gateway|compute|worker|backend|auth|bff|function/i.test(`${n.type} ${n.label}`);
     const isStateful = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${n.type} ${n.label}`);
     if (isCompute) {
-      provisionedCost += ((n.settings?.replicas ?? 1) * 15) / 730;
+      const reps = typeof n.settings?.replicas === "number" ? n.settings.replicas : 1;
+      provisionedCost += (reps * 15) / 730;
     } else if (isStateful) {
-      provisionedCost += (30 + ((n.settings?.ram ?? 4) * 4) + ((n.settings?.iops ?? 1000) * 0.02)) / 730;
+      const r = typeof n.settings?.ram === "number" ? n.settings.ram : 4;
+      const i = typeof n.settings?.iops === "number" ? n.settings.iops : 1000;
+      provisionedCost += (30 + (r * 4) + (i * 0.02)) / 730;
     } else {
       provisionedCost += 10 / 730;
     }
