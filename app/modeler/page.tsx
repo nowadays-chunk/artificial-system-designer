@@ -448,9 +448,9 @@ export default function ModelerPage() {
     const isCompute = /service|api|gateway|compute|worker|backend|auth|bff|function/i.test(`${selectedNode.type} ${selectedNode.label}`);
     const isStateful = /data|db|database|postgres|mysql|mongo|dynamo|spanner|redis|cache/i.test(`${selectedNode.type} ${selectedNode.label}`);
 
-    const replicas = selectedNode.settings?.replicas ?? 1;
-    const ram = selectedNode.settings?.ram ?? 4;
-    const iops = selectedNode.settings?.iops ?? 1000;
+    const replicas = typeof selectedNode.settings?.replicas === "number" ? selectedNode.settings.replicas : 1;
+    const ram = typeof selectedNode.settings?.ram === "number" ? selectedNode.settings.ram : 4;
+    const iops = typeof selectedNode.settings?.iops === "number" ? selectedNode.settings.iops : 1000;
 
     let estimatedCost = 15;
     if (isCompute) {
