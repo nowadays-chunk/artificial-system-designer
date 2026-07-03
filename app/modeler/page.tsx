@@ -1528,9 +1528,9 @@ ${val.detail}`).join("\n\n")}
                       {/* Handbook Usage details */}
                       {COMPONENT_DESIGN_HANDBOOK[selectedElementInfo.type] && (
                         <div className="mt-3 pt-3 border-t border-line space-y-1">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Default Specs:</p>
-                          <p className="text-xs text-slate-500">
-                            Scale bounds: {COMPONENT_DESIGN_HANDBOOK[selectedElementInfo.type].scaleLimit}
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Architecture Role:</p>
+                          <p className="text-xs leading-5">
+                            {COMPONENT_DESIGN_HANDBOOK[selectedElementInfo.type].usage}
                           </p>
                         </div>
                       )}
