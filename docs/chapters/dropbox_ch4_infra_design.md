@@ -1,40 +1,40 @@
 # Dropbox Case Study - Chapter 4: Infrastructure Strategy and Planning
 
-## 1. Capacity Sizing for Global Block Storage
+## 1. Capacity Sizing for High-Throughput Block Ingestion
 
-File storage requirements scale rapidly compared to text metadata. We size our storage using the following profile:
-- **Total Users**: 500,000,000 users.
-- **Active Uploaders/Day**: 5% of users ($25,000,000$ active uploaders/day).
-- **Average Data Uploaded/User/Day**: 50 Megabytes (MB).
-- **Daily Raw Data Ingested**:
-  $$\text{Data}_{\text{raw}} = 25,000,000 \times 50 \text{ MB} = 1,250 \text{ Terabytes (1.25 PB)/day}$$
-- **Data Reduction via Deduplication (average 30% saving)**:
-  $$\text{Data}_{\text{net}} = 1.25 \text{ PB} \times 0.7 = 875 \text{ Terabytes/day}$$
-- **Annual Storage Growth (with 3x replication)**:
-  $$\text{Storage}_{\text{annual}} = 875 \text{ TB/day} \times 365 \text{ days} \times 3 \approx 958 \text{ Petabytes/year}$$
+Block-level storage requirements scale rapidly. We size our storage using the following profile:
+- **Total File Uploads**: 1,000,000 files/day.
+- **Average Chunks per File (4MB block size)**: 5 chunks.
+- **Deduplication Rate**: 40% (meaning 40% of chunks uploaded already exist in block storage).
+- **Daily Storage Growth (Raw)**:
+  $$\text{Storage}_{\text{daily}} = 1,000,000 \text{ files} \times 5 \text{ chunks} \times 4 \text{ MB} \times (1 - 0.40) = 12,000,000 \text{ MB} = 12 \text{ Terabytes (TB)/day}$$
+- **Annual Multi-Resolution Storage Growth (with 3x replica storage)**:
+  $$\text{Storage}_{\text{annual}} = 12 \text{ TB/day} \times 365 \text{ days} \times 3 \approx 13.14 \text{ Petabytes (PB)/year}$$
 
 ---
 
-## 2. Bandwidth Sizing for Upload Egress
+## 2. Bandwidth Sizing for Content Delivery
 
-At peak write workloads ($7,000 \text{ active uploads/sec}$), the gateway bandwidth requirements are significant:
-- **Upload Bandwidth**:
-  $$\text{Bandwidth} = 7,000 \times (50 \text{ MB / } 86400 \text{ sec}) \approx 4 \text{ Gigabits/sec (Gbps)}$$
+At peak download workloads ($50,000 \text{ concurrent downloads}$), the egress bandwidth requirements are significant:
+- **Average Block Size**: 4MB.
+- **Download Window**: 10 seconds.
+- **Peak Egress Bandwidth**:
+  $$\text{Bandwidth} = 50,000 \text{ concurrent} \times \left( \frac{4 \text{ MB}}{10 \text{ sec}} \right) = 20,000 \text{ MB/sec (160 Gbps)}$$
 
 ```
-  Upload Pipeline:
-  [ Ingress Gateways ] ===( Raw Upload Streams )===> [ Block Service Nodes ]
-                                                            |
-                                                            v
-                                                   [ Storage Origin ]
+  Egress Delivery:
+  [ Origin Storage ] ===( Low Bandwidth Link )===> [ CDN Edge Cache Nodes ]
+                                                           | (160 Gbps Egress)
+                                                           v
+                                                   [ Global Clients ]
 ```
 
-To optimize network costs, the block service is deployed on high-throughput interfaces with dedicated network links to storage pools.
+To support this egress volume without saturating origin storage links, the system offloads 90%+ of block delivery traffic to CDN edge caches.
 
 ---
 
-## 3. Delta Synchronization and Chunking Strategies
+## 3. Dynamic Chunking and Synchronization
 
-To minimize network bandwidth during file updates:
-- **4MB Chunking**: Files are split into 4MB chunks. If a user modifies a small section of a 100MB file, only the modified 4MB chunks are uploaded.
-- **Rolling Hashing**: The sync engine uses rolling hashing algorithms to detect modified blocks, reducing upload volumes.
+To minimize bandwidth consumption and speed up sync times:
+- **CDC (Content-Defined Chunking)**: The client application uses Rabin fingerprints to chunk files dynamically based on content boundaries rather than fixed byte limits, ensuring that minor modifications do not shift downstream block offsets.
+- **Delta Sync**: Only modified blocks are uploaded to storage, reducing payload sizes.

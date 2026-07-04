@@ -220,5 +220,69 @@ export const CASE_STUDIES: CaseStudy[] = [
       { num: 14, title: "Lifecycle Management", desc: "Upgrade deprecated maps routing APIs." },
       { num: 15, title: "Documentation & Architecture Artifacts", desc: "Store trip matching pipeline sequence charts in design wikis." }
     ]
+  },
+  {
+    id: "airbnb",
+    name: "Airbnb",
+    chapters: [
+      { num: 1, title: "Infrastructure Architecture Design", desc: "Decouple search queries from booking writes." },
+      { num: 2, title: "Infrastructure Modeling", desc: "Model user listing database, search indexes, bookings tracker, and payout services." },
+      { num: 3, title: "Technology Selection & Standards", desc: "Deploy Elasticsearch for search queries, PostgreSQL for bookings, and Redis occupancy caches." },
+      { num: 4, title: "Infrastructure Strategy & Planning", desc: "Scale lookup and search indexes to sustain peak seasonal booking surges." },
+      { num: 5, title: "System Integration & Interoperability", desc: "Integrate with payment gateways and dispatch SMS alerts asynchronously." },
+      { num: 6, title: "Security Architecture", desc: "Maintain strict PCI-DSS compliance and secure payment processing gates." },
+      { num: 7, title: "Performance & Availability Management", desc: "Employ write-through caches for room availability to prevent double-booking issues." },
+      { num: 8, title: "Infrastructure Implementation Oversight", desc: "Verify checkout and booking workflow checks dynamically." },
+      { num: 9, title: "Cloud & Virtualization Architecture", desc: "Deploy search microservices in autoscaling Kubernetes worker clusters." },
+      { num: 10, title: "Disaster Recovery & Business Continuity", desc: "Configure active-passive multi-region databases and automated snapshots." },
+      { num: 11, title: "Governance & Compliance", desc: "Document caching policy guidelines in Architecture Decision Records (ADRs)." },
+      { num: 12, title: "Collaboration & Stakeholder Communication", desc: "Co-author search latency SLOs with the product search team." },
+      { num: 13, title: "Infrastructure Optimization", desc: "Clean up expired search logs to optimize catalog database index performance." },
+      { num: 14, title: "Lifecycle Management", desc: "Decommission legacy booking databases schemas." },
+      { num: 15, title: "Documentation & Architecture Artifacts", desc: "Publish booking pipeline blueprints in internal documentation wikis." }
+    ]
+  },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    chapters: [
+      { num: 1, title: "Infrastructure Architecture Design", desc: "Design ingestion pipelines handling high-frequency video uploads and recommending feeds under 100ms." },
+      { num: 2, title: "Infrastructure Modeling", desc: "Model video uploader services, user profile database, search indexes, and recommendation pipelines." },
+      { num: 3, title: "Technology Selection & Standards", desc: "Deploy Cassandra for metadata, HDFS/S3 for video chunks, and Redis feed indexes." },
+      { num: 4, title: "Infrastructure Strategy & Planning", desc: "Scale storage capacity to ingest and transcode petabytes of video uploads daily." },
+      { num: 5, title: "System Integration & Interoperability", desc: "Publish user interaction telemetry to Kafka to power real-time recommendation updates." },
+      { num: 6, title: "Security Architecture", desc: "Enforce content safety filters and rate-limit API request endpoints." },
+      { num: 7, title: "Performance & Availability Management", desc: "Locate transcoding nodes and CDN edge points close to users." },
+      { num: 8, title: "Infrastructure Implementation Oversight", desc: "Validate transcoding metrics across various upload devices." },
+      { num: 9, title: "Cloud & Virtualization Architecture", desc: "Host compute-intensive transcoders in auto-scaling container groups." },
+      { num: 10, title: "Disaster Recovery & Business Continuity", desc: "Maintain geo-replicated backup bucket stores for uploaded media." },
+      { num: 11, title: "Governance & Compliance", desc: "Audit video content streams for copyright compliance check validations." },
+      { num: 12, title: "Collaboration & Stakeholder Communication", desc: "Coordinate egress CDN latency targets with cloud partners." },
+      { num: 13, title: "Infrastructure Optimization", desc: "Optimize video compression and delivery to save bandwidth costs." },
+      { num: 14, title: "Lifecycle Management", desc: "Deprecate legacy low-resolution video transcoding targets." },
+      { num: 15, title: "Documentation & Architecture Artifacts", desc: "Publish video ingestion workflow diagrams in the developer handbook." }
+    ]
+  },
+  {
+    id: "messenger-slack",
+    name: "Messenger / Slack",
+    chapters: [
+      { num: 1, title: "Infrastructure Architecture Design", desc: "Design high-concurrency connection pools to manage persistent WebSocket sessions." },
+      { num: 2, title: "Infrastructure Modeling", desc: "Model message delivery pipelines, channel registry nodes, and presence tracking state stores." },
+      { num: 3, title: "Technology Selection & Standards", desc: "Deploy Erlang/Elixir BEAM VM for connection gateways, and Cassandra/HBase for messaging history." },
+      { num: 4, title: "Infrastructure Strategy & Planning", desc: "Scale WebSocket server gateways to maintain millions of concurrent active sockets." },
+      { num: 5, title: "System Integration & Interoperability", desc: "Integrate background APNs and FCM push notification brokers for offline messaging." },
+      { num: 6, title: "Security Architecture", desc: "Implement end-to-end encryption for private and group message channels." },
+      { num: 7, title: "Performance & Availability Management", desc: "Partition message databases dynamically to limit search latency on large chat groups." },
+      { num: 8, title: "Infrastructure Implementation Oversight", desc: "Measure connection drop rates and queue latencies across gateway clusters." },
+      { num: 9, title: "Cloud & Virtualization Architecture", desc: "Optimize connection density on bare-metal virtual container hosts." },
+      { num: 10, title: "Disaster Recovery & Business Continuity", desc: "Replicate message logs and presence state indexes across active multi-region clusters." },
+      { num: 11, title: "Governance & Compliance", desc: "Adhere to messaging privacy rules and data retention standards." },
+      { num: 12, title: "Collaboration & Stakeholder Communication", desc: "Co-author push notification reliability metrics with mobile application teams." },
+      { num: 13, title: "Infrastructure Optimization", desc: "Optimize WebSocket frame sizes and protocol overhead to reduce bandwidth footprints." },
+      { num: 14, title: "Lifecycle Management", desc: "Upgrade gateway server versions and deprecate legacy chat APIs." },
+      { num: 15, title: "Documentation & Architecture Artifacts", desc: "Save message sequence charts and connection topology plans in tech wiki systems." }
+    ]
   }
 ];
+

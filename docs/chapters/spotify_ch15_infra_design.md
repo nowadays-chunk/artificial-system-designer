@@ -1,37 +1,38 @@
 # Spotify Case Study - Chapter 15: Documentation and Architecture Artifacts
 
-## 1. GitOps Workflows for Architecture Documentation
+## 1. Document-as-Code (GitOps Workflows)
 
-We manage system design documentation as code:
-- **Versioning**: All architecture diagrams, configurations, and API schemas are stored in markdown format within the Git repository.
-- **Approvals**: Any changes to architecture specifications require pull request reviews and team approvals.
+Infrastructure architecture documentation must be kept up-to-date and versioned alongside the code. We treat documentation as code (GitOps):
+- **Storage**: Architecture diagrams, network specifications, and schemas are stored in a markdown format inside the project's repository.
+- **Reviews**: Changes to system design documents require pull requests and team approvals.
+- **Generation**: Build pipelines compile markdown files to generate HTML docs pages.
 
 ---
 
 ## 2. Standardized Architecture Decision Record (ADR) Schema
 
-We document architectural decisions using a standardized ADR template:
+We use a standard template for ADRs to document architectural decisions.
 
 ```markdown
-# ADR-019: Selecting Ogg Vorbis as default audio streaming format
+# ADR-014: Database Sharding Selection for Metadata Storage
 
 ## Status
 Approved
 
 ## Context
-High fidelity audio streams are required at lower bitrates to minimize CDN egress bandwidth.
+Our metadata write path handles 3,000+ QPS peak load. The existing single-instance PostgreSQL database experiences CPU saturation and lock contention.
 
 ## Decision
-We will encode and packages all music tracks using the Ogg Vorbis compression format.
+We will partition and shard our PostgreSQL database cluster horizontally using a hash of the User ID.
 
 ## Consequences
-- Enables high-quality playback at 160kbps, reducing bandwidth overhead.
-- Requires decoders integration in client players.
+- Distributes read/write loads across shard groups, preventing single-node bottlenecks.
+- Requires modifying application queries to include the partitioning key (User ID) to avoid cross-shard query operations.
 ```
 
 ---
 
-## 3. Centralized API Registry and Schema Management
+## 3. Central Schema Registry & API Catalogs
 
 To coordinate service communication and prevent breaking changes:
 - **Proto Schema Contracts**: Store all Protocol Buffer schemas in a central repository.

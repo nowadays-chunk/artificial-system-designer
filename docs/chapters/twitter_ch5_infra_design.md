@@ -1,35 +1,49 @@
 # Twitter Case Study - Chapter 5: System Integration and Interoperability
 
-## 1. Inter-Service Communication: gRPC over HTTP/2
+## 1. High-Performance Inter-Service Communication Protocols
 
-In a high-scale microservices architecture, network performance depends heavily on the communication protocols between nodes. Historically, systems relied on REST APIs over HTTP/1.1, transferring JSON payloads. This model introduces significant latency at scale due to:
-- **Head-of-Line (HoL) Blocking**: HTTP/1.1 requires a separate TCP connection for each concurrent request, leading to socket exhaustion.
-- **Verbose Text Serialization**: Parsing JSON strings consumes substantial CPU cycles compared to binary formats.
+In an enterprise-scale microservices architecture handling 100,000+ internal remote procedure calls (RPCs) per second, the choice of communication protocol directly impacts service latency, CPU consumption, and network saturation. Legacy architectures relying on REST APIs over HTTP/1.1 with text-based JSON serialization incur high resource penalties:
+- **TCP Connection Overhead**: HTTP/1.1 requires setting up distinct TCP connections or keeping connections open using keep-alive headers. However, it cannot multiplex requests over a single connection, leading to socket exhaustion under heavy load.
+- **JSON Serialization CPU Overhead**: Parsing and serializing text-based JSON strings consumes significant CPU cycles compared to binary serialization formats.
+- **Header Size Inflation**: HTTP/1.1 headers are transmitted as uncompressed text strings, introducing substantial bandwidth overhead for small payloads.
 
-To address this, our microservice architecture standardizes on **gRPC** running over **HTTP/2**.
+To resolve these limitations, the Twitter infrastructure architecture standardizes on **gRPC running over HTTP/2** with **Protocol Buffers (protobuf)** as the binary serialization layer.
+
+---
+
+### 1.1 gRPC over HTTP/2 (Multiplexed Streams)
+
+HTTP/2 replaces text-based transport with a binary framing layer. It splits HTTP requests and responses into independent binary frames and multiplexes them over a single, shared TCP connection.
 
 ```
-    gRPC over HTTP/2 (Multiplexed Streams):
-    [ Client Service ] ===( Single TCP Connection )===> [ Target Service ]
-                              |--- Stream A (Req/Res 1)
-                              |--- Stream B (Req/Res 2)
-                              |--- Stream C (Req/Res 3)
+  gRPC HTTP/2 Multiplexing:
+  [ Ingress Gateway ] ===( Single TCP Connection )===> [ Routing Service ]
+                             |--- Frame Stream A (PostTweet Request)
+                             |--- Frame Stream B (GetTimeline Response)
+                             |--- Frame Stream C (LogTelemetry Request)
 ```
 
-### 1.1 HTTP/2 Multiplexing
-HTTP/2 supports request-response multiplexing over a single shared TCP connection. It breaks payloads down into binary frames and interleaves them. This design:
-- Prevents connection setup overhead.
-- Minimizes TCP slow-start performance penalties.
-- Enables bi-directional streaming.
+By multiplexing streams over a single connection:
+- **Eliminates Socket Exhaustion**: Services communicate via a persistent pool of TCP connections, avoiding connection setup overhead.
+- **Reduces Latency**: Eliminates the TCP slow-start penalty by keeping connections active.
+- **Saves Bandwidth**: Uses HPACK header compression to compress headers, reducing egress bandwidth requirements.
 
-### 1.2 Protocol Buffers Schema Definition
-We define clear API contracts using Protocol Buffers (`proto3`). The following schema defines the core Tweet Service integration contract:
+---
+
+### 1.2 Protobuf Integration Contracts
+
+We define gRPC interface contracts using Protocol Buffers (`proto3`). The following schema defines the core Tweet Service integration contract:
 
 ```protobuf
 syntax = "proto3";
 
 package twitter.integration.v1;
 
+option go_package = "twitter/integration/v1;integrationv1";
+option java_multiple_files = true;
+option java_package = "com.twitter.integration.v1";
+
+// Handles tweet creation, metadata retrieval, and batch reads.
 service TweetService {
   rpc PostTweet(PostTweetRequest) returns (PostTweetResponse);
   rpc GetTweet(GetTweetRequest) returns (GetTweetResponse);
@@ -40,6 +54,7 @@ message PostTweetRequest {
   string author_id = 1;
   string tweet_body = 2;
   repeated string media_urls = 3;
+  int64 timestamp = 4;
 }
 
 message PostTweetResponse {
@@ -71,86 +86,147 @@ message BatchGetTweetsResponse {
 
 ---
 
-## 2. Social Graph Service Integration
+## 2. Distributed Social Graph Service (FlockDB Architecture)
 
-Calculating timelines requires low-latency queries on the user's social graph to answer: "Who is this user following?" and "Who is following this user?"
+A core challenge in microblogging platforms is managing user relationships: who follows whom, and who blocks whom. This data is managed by the **Social Graph Service (FlockDB)**.
 
-### 2.1 FlockDB Graph Topology
-We model social graph relationships using a distributed graph database layout (similar to FlockDB), optimized for low-depth, high-degree traversals.
-- **Edges Table Schema**:
-  ```sql
-  CREATE TABLE social_graph.edges (
-      source_id bigint,
-      target_id bigint,
-      state state_enum, // active, blocked, muted
-      updated_at timestamp,
-      PRIMARY KEY (source_id, target_id)
-  );
-  ```
+FlockDB is a distributed graph database optimized for low-depth, high-degree traversals. It does not support multi-hop traversals (e.g. "find friends of friends"); instead, it is designed to answer two queries under 5ms:
+1. **Forward Query**: "Who is User A following?" (used to assemble home timelines).
+2. **Inverted Query**: "Who is following User A?" (used during tweet fan-out).
 
-To support both queries efficiently, the edges table is stored in two index mappings:
-1. **Forward Index (`source_id` $\rightarrow$ `target_id`)**: Finds all accounts a user is following.
-2. **Inverted Index (`target_id` $\rightarrow$ `source_id`)**: Finds all followers of an account (used during fan-out).
+```
+  FlockDB Index Partitioning:
+  [ User A ID ] ---> [ Forward Index (Following) ] ----> [ User B ID, User C ID ]
+  [ User A ID ] ---> [ Inverted Index (Followers) ] ---> [ User D ID, User E ID ]
+```
+
+### 2.1 Graph Index Storage Schema
+Relationships are represented as directed edges stored in a MySQL backend sharded using the **Gizzard** framework:
+
+```sql
+CREATE TABLE flock_graph.edges (
+    source_id bigint NOT NULL,
+    target_id bigint NOT NULL,
+    state tinyint NOT NULL, -- 0: Active, 1: Deleted, 2: Blocked, 3: Muted
+    updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (source_id, target_id),
+    KEY idx_target_state (target_id, state)
+) ENGINE=InnoDB;
+```
+
+- **Forward Index (`PRIMARY KEY`)**: InnoDB tables cluster data physically by the primary key (`source_id`, `target_id`). This ensures that querying all users followed by `source_id` is a sequential disk read.
+- **Inverted Index (`idx_target_state`)**: Allows fast retrieval of all active followers of a target user during the write fan-out pipeline.
 
 ---
 
-## 3. Timeline Fan-Out Pipeline Implementation
+## 3. Timeline Fan-Out Architecture: Push vs. Pull Models
 
-When a user posts a tweet, the Fan-Out pipeline distributes the Tweet ID to the home feed caches of active followers.
+When a user posts a tweet, the system must update the home timelines of their followers. We use a hybrid model combining **Fan-Out-on-Write (Push)** and **Fan-Out-on-Read (Pull)**.
 
 ```
-  Ingestion Flow:
-  [ Tweet Post ] ---> [ Kafka Topic ] ---> [ Fan-Out Worker ]
-                                                    |
-         +------------------------------------------+
-         | (Iterate active followers)
-         v
-  [ Redis LPUSH ] ---> [ LTRIM 800 ] (Keep feed size bounded)
+       [ Tweet Post ] ---> [ Kafka Event ] ---> [ Fan-Out Workers ]
+                                                     |
+             +---------------------------------------+
+             | (Iterate active followers)
+             v
+       [ Redis LPUSH ] ---> [ LTRIM 800 ] (Keep timeline sizes bounded)
 ```
 
-### 3.1 Fan-Out Worker Loop Algorithm
+---
+
+### 3.1 Fan-Out-on-Write (Push Model)
+For users with average follower counts (under 10,000), new tweets are pushed directly to their followers' timeline caches:
+1. **Event Ingestion**: The Write Service publishes a `TweetCreatedEvent` to a Kafka topic.
+2. **Follower Queries**: A Fan-Out Worker consumes the event and queries the Social Graph Service (FlockDB) to retrieve the author's followers.
+3. **Presence Filtering**: The worker queries the Presence Service to identify active users (active in the last 30 days).
+4. **Cache Updates**: The worker sends pipelined updates to the active followers' Redis timeline lists.
+
+---
+
+### 3.2 Fan-Out-on-Read (Pull Model)
+For high-profile users (celebrities with millions of followers), fanning out a single tweet to all followers would saturate cache CPU and network bandwidth. Instead:
+- **Write Bypass**: If the author's follower count exceeds 10,000, the fan-out step is bypassed. The tweet ID is written only to the author's timeline index (`celebrity_tweets:author_id`).
+- **On-Read Merging**: When a follower loads their home feed, the Timeline Service fetches their pre-computed standard feed from Redis and merges it on-the-fly with the recent tweets of any celebrity users they follow.
+
+---
+
+### 3.3 Fan-Out Pipeline Implementation
 Below is a conceptual implementation of the background fan-out process:
 
 ```typescript
-interface TweetEvent {
+import { Kafka } from "kafkajs";
+import Redis from "ioredis";
+
+interface TweetCreatedEvent {
   tweetId: string;
   authorId: string;
   timestamp: number;
 }
 
-async function handleTweetFanOut(event: TweetEvent) {
-  // 1. Fetch followers list using the Inverted Index
-  const followers = await socialGraph.getFollowers(event.authorId);
+export class FanOutPipeline {
+  private kafka = new Kafka({ brokers: ["kafka-broker-1:9092"] });
+  private redisCluster = new Redis.Cluster([
+    { host: "redis-node-1", port: 6379 }
+  ]);
+  private consumer = this.kafka.consumer({ groupId: "fanout-workers" });
 
-  // 2. Batch process followers to prevent memory saturation
-  const BATCH_SIZE = 1000;
-  for (let i = 0; i < followers.length; i += BATCH_SIZE) {
-    const batch = followers.slice(i, i + BATCH_SIZE);
+  public async start() {
+    await this.consumer.connect();
+    await this.consumer.subscribe({ topic: "tweet-events", fromBeginning: false });
 
-    // 3. Filter for active users (active in the last 30 days)
-    const activeFollowers = await presenceService.filterActiveUsers(batch);
-
-    // 4. Update active follower caches in parallel using Redis pipelines
-    const redisPipeline = redisCluster.pipeline();
-    activeFollowers.forEach((followerId) => {
-      const feedKey = `timeline:${followerId}`;
-      
-      // Prepend Tweet ID to the user's timeline list
-      redisPipeline.lpush(feedKey, event.tweetId);
-      
-      // Keep list size bounded to the latest 800 entries
-      redisPipeline.ltrim(feedKey, 0, 799);
+    await this.consumer.run({
+      eachMessage: async ({ message }) => {
+        if (!message.value) return;
+        const event: TweetCreatedEvent = JSON.parse(message.value.toString());
+        await this.executeFanOut(event);
+      }
     });
+  }
 
-    await redisPipeline.exec();
+  private async executeFanOut(event: TweetCreatedEvent) {
+    // 1. Query FlockDB to retrieve followers list
+    const followers = await flockClient.getFollowers(event.authorId);
+
+    // Bypass standard fan-out for celebrity accounts
+    if (followers.length > 10000) {
+      await this.redisCluster.lpush(`celebrity_tweets:${event.authorId}`, event.tweetId);
+      await this.redisCluster.ltrim(`celebrity_tweets:${event.authorId}`, 0, 99);
+      return;
+    }
+
+    // 2. Batch process followers in chunks of 1,000 to manage memory
+    const BATCH_SIZE = 1000;
+    for (let i = 0; i < followers.length; i += BATCH_SIZE) {
+      const batch = followers.slice(i, i + BATCH_SIZE);
+
+      // 3. Filter for active users (active in the last 30 days)
+      const activeFollowers = await presenceClient.filterActiveUsers(batch);
+
+      // 4. Update active follower caches in parallel using Redis pipelines
+      const pipeline = this.redisCluster.pipeline();
+      activeFollowers.forEach((followerId) => {
+        const feedKey = `timeline:${followerId}`;
+        pipeline.lpush(feedKey, event.tweetId);
+        pipeline.ltrim(feedKey, 0, 799); // Limit timeline size to 800 items
+      });
+
+      await pipeline.exec();
+    }
   }
 }
 ```
 
 ---
 
-## 4. Architectural Verification Metrics
+## 4. Pipeline Monitoring and SLO Targets
 
-To ensure system reliability, we monitor key pipeline metrics:
-- **Fan-out Latency P99**: The time elapsed from when Alice posts a tweet to when the last active follower's cache is updated. The target SLO is **P99 < 2 seconds** under normal load.
-- **Kafka Consumer Lag**: Measures the backlog of unconsumed messages in the write pipeline. Significant consumer lag indicates the need to provision additional fan-out worker instances.
+To maintain real-time delivery performance, we monitor the following metrics:
+
+### 4.1 Fan-out Latency
+The duration from when a tweet is posted to when it appears in the home feed caches of all active followers.
+- **SLO Target**: P95 < 500ms, P99 < 2.0 seconds.
+
+### 4.2 Kafka Consumer Lag
+Measures the queue backlog of unprocessed messages. A rising lag indicates that additional fan-out worker pods should be provisioned.
+- **Target Threshold**: Lag < 5,000 events per partition.
+- **HPA Integration**: The Kubernetes autoscaler scales worker pod counts based on partition lag metrics.

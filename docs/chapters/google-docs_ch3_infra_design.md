@@ -1,36 +1,35 @@
 # Google Docs Case Study - Chapter 3: Technology Selection and Standards
 
-## 1. Evaluation Matrix: Storage Selection for Document Snapshots and Operations Log
+## 1. Evaluation Matrix: Relational Database Sharding vs. NoSQL Keyspace
 
-To persist user document contents and the real-time editing operations log, the storage engine must support low-latency lookups:
+To store document metadata, directory hierarchies, and consolidated text snapshots at scale:
 
-- **PostgreSQL Master-Replica Clusters**: Selected for document snapshots and metadata storage because relational databases support complex ACID transactions and structured document layout schemas.
-- **Redis Cluster**: Selected to cache real-time operations logs (OT sequence records) because it supports low-latency range operations (`LRANGE`, `LPUSH`).
-
----
-
-## 2. Real-Time Sync Protocols: WebSockets vs. SSE (Server-Sent Events)
-
-To push document updates to client editors:
-- **WebSockets**: Selected as the communication standard because it provides full-duplex, bi-directional channels over a single TCP connection, allowing clients to send edits and receive synchronization updates with minimal latency.
+- **PostgreSQL with Manual Sharding**: Selected to persist core document snapshots. Since the data model is hierarchical (documents within directory trees, sharing metadata and permission mappings), maintaining strong ACID guarantees is essential. To scale past single-node write limitations, PostgreSQL instances are sharded horizontally using the Document ID hash.
+- **Cassandra NoSQL Storage (Comparison)**: Optimized for write-heavy flat lists, but it lacks the recursive query support, index flexibility, and transaction capabilities required for complex folder metadata.
 
 ---
 
-## 3. Operations Log PostgreSQL Table Schema Design
+## 2. In-Memory Cache Selection: Redis vs. Memcached
 
-To model document revision operations in PostgreSQL:
+To host active editing sessions, conflict resolution queues, and user presence registries:
+- **Redis Cluster**: Selected because it supports rich data structures (e.g., Lists, Sorted Sets, Hashes) in memory. This allows storing document edit deltas as Lists (`LIST`), enabling fast sequential appends, range queries, and atomic push/pop operations.
+- **Memcached**: Excellent for simple key-value lookups (such as caching static document profiles), but its lack of complex data structures makes it less suitable for hosting dynamic collaborative edit deltas.
+
+---
+
+## 3. Database Schema Design for Document Snapshots
+
+To model document snapshots in sharded PostgreSQL:
 
 ```sql
-CREATE TABLE google_docs_metadata.revision_operations (
+CREATE TABLE google_docs_metadata.snapshots (
     document_id uuid NOT NULL,
-    revision_version bigint NOT NULL,
-    user_id bigint NOT NULL,
-    op_type varchar(10) NOT NULL, -- INSERT, DELETE
-    op_position int NOT NULL,
-    op_content text,
-    created_at timestamp DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (document_id, revision_version)
-);
+    version int NOT NULL,
+    content text NOT NULL, -- Compressed document markup
+    checksum varchar(64) NOT NULL, -- SHA-256 hash of the content
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (document_id, version)
+) PARTITION BY HASH (document_id);
 ```
 
-This schema partitions operations by `document_id`, grouping revisions on disk to enable fast, single-query retrieval of document histories.
+This schema partitions the `snapshots` table by `document_id` to distribute write actions across database shards and group version histories sequentially on disk.

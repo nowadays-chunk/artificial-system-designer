@@ -1,41 +1,40 @@
 # Google Docs Case Study - Chapter 4: Infrastructure Strategy and Planning
 
-## 1. Capacity Sizing for Real-Time Sync Operations
+## 1. Capacity Sizing for Real-Time Collaborative Sessions
 
-Operational logs scale rapidly under active collaboration. We size our storage using the following profile:
-- **Total Users**: 500,000,000 users.
-- **Active Editors/Day**: 10% of users ($50,000,000$ active editors/day).
-- **Average Edit Operations/User/Day**: 500 operations.
-- **Daily Operations Ingested**:
-  $$\text{Ops}_{\text{daily}} = 50,000,000 \times 500 = 25,000,000,000 \text{ operations/day}$$
-- **Average Operation Size (JSON)**: 100 bytes.
-- **Daily Raw Data Ingested**:
-  $$\text{Data}_{\text{raw}} = 25,000,000,000 \times 100 \text{ bytes} = 2.5 \text{ Terabytes/day}$$
-- **Annual Storage Growth (with replicas)**:
-  $$\text{Storage}_{\text{annual}} = 2.5 \text{ TB/day} \times 365 \text{ days} \times 3 \approx 2.73 \text{ Petabytes/year}$$
+Collaborative edit updates require high write throughput and minimal latency.
 
----
-
-## 2. Bandwidth Sizing for Real-Time Sync Egress
-
-At peak write workloads ($25,000 \text{ active operations/sec}$), the gateway bandwidth requirements are significant:
-- **Upload Bandwidth**:
-  $$\text{Bandwidth} = 25,000 \times 100 \text{ bytes} \approx 2.5 \text{ Megabytes/sec (20 Mbps)}$$
-
-```
-  Upload Pipeline:
-  [ Ingress Gateways ] ===( Raw Edit Streams )===> [ WebSockets Gateway Nodes ]
-                                                            |
-                                                            v
-                                                   [ Storage Origin ]
-```
-
-To optimize network costs, the sync service is deployed on high-throughput interfaces with dedicated network links to storage pools.
+We plan capacity using the following profile:
+- **Active Editing Users**: 10,000,000 users.
+- **Edit Frequency**: Average of 2 edits (character typings or deletions) per second per active user.
+- **Total Ingestion QPS**:
+  $$\text{QPS} = 10,000,000 \text{ users} \times 2 \text{ edits/sec} = 20,000,000 \text{ edits/sec}$$
+- **Average Edit Event Size**: 500 bytes (includes metadata, timestamps, operational parameters).
+- **Ingestion Bandwidth**:
+  $$\text{Bandwidth} = 20,000,000 \times 500 \text{ bytes} = 10,000,000,000 \text{ bytes/sec} = 10 \text{ Gigabytes/sec (80 Gbps)}$$
 
 ---
 
-## 3. Operational Transformation (OT) and Compression Strategies
+## 2. Ingress Load Balancer Auto-Scaling Sizing
 
-To minimize network bandwidth during file updates:
-- **Operation Grouping**: Operations are grouped on the client side before transmission, reducing network overhead.
-- **Revision Compacting**: A background engine periodically compacts old operation history logs into static document snapshots, freeing database storage.
+To process incoming WebSocket connections:
+- **Sync Gateway Pod Capacity**: A standard compute container node can maintain $50,000 \text{ persistent WebSocket connections}$ under load.
+- **Total Compute Replicas Requirement (Ingestion)**:
+  $$R_{\text{sync}} = \frac{10,000,000}{50,000} = 200 \text{ container instances}$$
+
+```
+  Ingestion Pipeline:
+  [ Ingress Gateways ] ===( WebSocket Links )===> [ Sync Gateway Pods ]
+                                                         |
+                                                         v
+                                                [ Redis OT Cache ]
+```
+
+We deploy auto-scaling rules using active connection count and CPU metrics to provision instances dynamically as active editor counts rise.
+
+---
+
+## 3. Dynamic Edit Event Throttling Policies
+
+To protect database and network capacity during peak load conditions or network degradation:
+- **Dynamic Ingestion Throttling**: The sync gateway adjusts event aggregation windows dynamically (e.g. buffering character inputs on the client side for 100ms before sending), reducing upstream ingestion QPS.

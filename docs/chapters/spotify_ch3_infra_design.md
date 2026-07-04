@@ -1,33 +1,36 @@
 # Spotify Case Study - Chapter 3: Technology Selection and Standards
 
-## 1. Evaluation Matrix: Storage Selection for Playlists and Catalog Metadata
+## 1. Evaluation Matrix: Relational Database Sharding vs. NoSQL Keyspace
 
-To persist user playlist definitions (which can contain thousands of song ID references) and the catalog metadata database, the storage engine must support low-latency reads and writes:
+To store track metadata, user profiles, playlists, and followers at scale:
 
-- **Apache Cassandra**: Selected for catalog and playlist storage due to its wide-column storage engine, multi-datacenter replication capabilities, and predictable scaling profiles under high write loads.
-- **Relational Databases (PostgreSQL)**: PostgreSQL is used to manage relational datasets, such as user profiles, billing history, and system configurations, where ACID guarantees are required.
-
----
-
-## 2. Audio File Packaging Formats: Ogg Vorbis vs. MP3
-
-For audio encoding and storage:
-- **Ogg Vorbis (and AAC)**: Selected as the compression standard because it provides higher audio fidelity at lower bitrates (e.g., 96kbps, 160kbps, 320kbps) than legacy MP3 formats, minimizing CDN storage footprints and egress bandwidth consumption.
+- **PostgreSQL with Manual Sharding**: Selected to persist core metadata. Since the data model is relational (e.g. users, playlists, tracks), maintaining relational mappings and transactional guarantees is essential. To scale past single-node write limitations, PostgreSQL database instances are sharded horizontally using the User ID hash.
+- **Cassandra NoSQL Storage (Comparison)**: Optimized for write-heavy append-only keyspace logs, but it lacks the secondary indexing flexibility, query join capabilities, and transaction support required for complex relational queries.
 
 ---
 
-## 3. Playlists Cassandra Table Schema Design
+## 2. In-Memory Cache Selection: Redis vs. Memcached
 
-To model user playlists in Cassandra:
+To host pre-computed user playlists and active session stores:
+- **Redis Cluster**: Selected because it supports rich data structures (e.g., Sorted Sets, Lists, Hashes) in memory. This allows storing playlists as Sorted Sets (`ZSET`) indexed by tracks, enabling fast range queries and updates.
+- **Memcached**: Excellent for simple key-value lookups (such as caching raw JSON track profiles), but its lack of complex data structures makes it less suitable for hosting dynamic playlist tracks.
+
+---
+
+## 3. Database Schema Design for Audio Metadata
+
+To model tracks in sharded PostgreSQL:
 
 ```sql
-CREATE TABLE spotify_playlists.playlists (
-    playlist_id uuid,
-    track_id uuid,
-    added_at timestamp,
-    track_order int,
-    PRIMARY KEY (playlist_id, track_id)
-);
+CREATE TABLE spotify_metadata.tracks (
+    track_id bigint NOT NULL, -- Snowflake ID (combines timestamp, shard ID, seq ID)
+    artist_id bigint NOT NULL,
+    audio_url varchar(512) NOT NULL,
+    title varchar(255) NOT NULL,
+    duration int NOT NULL, -- in seconds
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (artist_id, track_id)
+) PARTITION BY HASH (artist_id);
 ```
 
-This schema partitions playlists by `playlist_id`, grouping track records on disk to enable fast, single-query retrieval of playlist tracks.
+This schema partitions the `tracks` table by `artist_id` to distribute write actions across database shards and group an artist's tracks sequentially on disk.

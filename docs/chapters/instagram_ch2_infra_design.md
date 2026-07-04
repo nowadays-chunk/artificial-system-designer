@@ -2,11 +2,11 @@
 
 ## 1. Formalizing the System Topology Graph
 
-We model Instagram's infrastructure layout as a directed dependency graph:
+To simulate, evaluate, and inspect cloud-scale infrastructure layouts, an architect must represent the topology as a mathematically rigorous directed graph:
 $$G = (V, E)$$
 where:
-- **Vertices ($V$)**: Represent infrastructure services (e.g., Ingress Gateways, Media Transcoders, Caching Clusters, Object Buckets).
-- **Directed Edges ($E$)**: Represent communication links between services.
+- **Vertices ($V$)**: Represent discrete infrastructure resource elements (e.g., compute node containers, load balancers, caches, database clusters, routing gateways).
+- **Directed Edges ($E$)**: Represent communication paths connecting vertices, where an edge $e = (u, v) \in E$ indicates that vertex $u$ (source) transmits data packets or executes remote calls to vertex $v$ (target).
 
 ```
        [ Gateway Node ] ---> [ Media Upload Node ] ---> [ Transcoder Node ] ---> [ S3 Bucket Node ]
@@ -34,8 +34,6 @@ We define node properties based on their functional characteristics:
 ---
 
 ## 3. Serializing the Graph: JSON Schema Representation
-
-The following schema defines the core Instagram graph topology:
 
 ```json
 {

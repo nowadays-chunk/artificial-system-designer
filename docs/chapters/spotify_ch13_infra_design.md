@@ -1,23 +1,59 @@
 # Spotify Case Study - Chapter 13: Infrastructure Optimization
 
-## 1. Monitoring Performance Bottlenecks
+## 1. Detecting Performance Bottlenecks
 
-We monitor key performance indicators (KPIs) to identify optimization opportunities:
-- **CDN Edge Hit Ratios**: The target is >98% cache hits for audio files. Lower hit rates increase origin storage requests, impacting costs and playback start latencies.
-- **Database CPU & Lock Saturation**: High lock wait times indicate the need to optimize database indexes or split tables.
-
----
-
-## 2. Bandwidth Egress Optimization (Ogg Vorbis Compression)
-
-Because audio data represents the majority of egress traffic, we optimize file sizes:
-- **Ogg Vorbis & AAC Encodings**: Audio assets are transcoded into Ogg Vorbis or AAC formats at multiple bitrates (96kbps, 160kbps, 320kbps).
-- **Dynamic Bitrate Adjustment**: Client players adjust audio quality dynamically based on network conditions, minimizing bandwidth consumption on slow connections.
+Optimizing large-scale infrastructures requires continuous monitoring of performance metrics. We focus on three indicators:
+- **Cache Hit Ratio**: Home playlist Redis cache hits must exceed 98%. Drops in this ratio shift read loads to the PostgreSQL database, increasing read latency.
+- **Database Saturation**: PostgreSQL primary node CPU utilization and disk write-ahead log queue depth.
+- **Network Link Egress Bandwidth**: Egress traffic limits on connections to public networks.
 
 ---
 
-## 3. JVM Garbage Collection Optimization
+### 1.1 Cache Hit Ratio Optimization
+If the cache hit ratio drops below 98%, the database tier experiences query surges. To prevent cache eviction:
+- **Dynamic TTL**: Adjust key expiration times based on user access frequency (e.g. active users have longer TTLs).
+- **Cache Pre-warming**: Background workers pre-warm caches for users expected to log in soon (e.g. based on daily access patterns).
 
-We optimize the performance of Scala-based microservices:
-- **ZGC (Z Garbage Collector)**: Standardized on ZGC to maintain garbage collection pause times under 10ms, preventing latency spikes in playback session handshakes.
-- **Heap Tuning**: JVM heap settings are adjusted based on container resource limits to prevent OOM errors.
+---
+
+## 2. Bandwidth and Egress Optimization
+
+Because the read-to-write ratio is asymmetric (150:1), data egress cost is a primary expense. We optimize egress transit through two strategies:
+
+```
+  Data Size Reduction:
+  [ Raw API Payload (JSON) ] =======( Protobuf Serialization )=======> [ Binary Frames (40% smaller) ]
+  [ Uncompressed Video ]     =======( Ogg Vorbis / AAC Encoding )=====> [ Stream Feeds (60% smaller) ]
+```
+
+### 2.1 Serialization Formats (Protobuf vs JSON)
+We replace legacy JSON API formats with binary **Protocol Buffers** for microservice-to-client payloads:
+- Protobuf omits tag names, utilizing numeric keys in binary frames.
+- This reduces average payload sizes by 40% and lowers CPU serialization overhead at the API Gateway.
+
+---
+
+### 2.2 Audio Codec Optimization
+Media streaming payloads are processed through compression pipelines:
+- Uploaded tracks are encoded into **Ogg Vorbis** (for desktop/Android clients) and **AAC** (for iOS and web clients) at various bitrates (96kbps, 160kbps, 320kbps).
+- Stream bitrates adjust dynamically based on real-time network conditions.
+
+---
+
+## 3. Compute Density Tuning: JVM/Go Garbage Collection
+
+Stateless microservices (written in Java/Scala or Go) can experience latency spikes during garbage collection (GC) cycles.
+
+---
+
+### 3.1 Tuning JVM GC (ZGC/G1GC)
+For Java-based Playback Services, we use the **Z Garbage Collector (ZGC)**:
+- ZGC executes GC cycles concurrently with application threads.
+- This maintains pause times under 10ms even with large heap allocations, preventing latency spikes that could trigger upstream timeouts.
+
+---
+
+### 3.2 Go GC Tuning
+For Go-based API Gateways, we adjust the garbage collection target percentage:
+- Setting `GOGC=120` trades memory footprint for CPU cycles, reducing GC frequency during traffic peaks.
+- We monitor GC pause durations and CPU cycles spent on GC using Prometheus metrics to verify configuration performance under load.
